@@ -1,0 +1,41 @@
+# 识务 (ShiWu) — 声明与第三方归属
+
+Copyright (C) 2026 识务 贡献者
+
+本项目整体以 **GNU Affero General Public License v3.0** 发布，全文见 `LICENSE`。
+许可证索引与第三方归属原件见 `licenses/README.md`。
+
+网络用户通过本软件获得服务时，按 AGPL-3.0 第 13 条，你有权获得对应源码。
+
+## 第三方项目
+
+### 1. Facenox → `src/shiwu/` 的相当一部分
+
+- 上游：https://github.com/facenox/facenox
+- 锁定 commit：`10a4b64f05403aed3e7c864ae71cd574546da9f6`
+- 许可：**AGPL-3.0**，© 2025-2026 Facenox — 原文 `licenses/facenox/LICENSE`
+- 其自身依赖的第三方组件与模型许可见 `licenses/facenox/THIRD_PARTY_LICENSES.md`
+- 合入范围、删除范围与许可后果见 `licenses/facenox/NOTICE.md`
+
+因为 Facenox 是 AGPL-3.0，本产品整体也因此以 AGPL-3.0 发布。
+
+### 2. shadcn-admin → `apps/web/`
+
+- 上游：https://github.com/satnaing/shadcn-admin
+- 锁定 commit：`e16c87f213a5ba5e45964e9b67c792105ec74d26`
+- 许可：**MIT**，© 2024 Sat Naing — 原文 `licenses/shadcn-admin/LICENSE`
+- 改动范围见 `licenses/shadcn-admin/NOTICE.md`
+
+### 3. 桌面端外壳
+
+Electron（MIT）及图标 / 音效素材归属见 `licenses/desktop-NOTICE.md`。
+
+### 4. 测试视频素材
+
+来自 Pexels（Pexels License）。**不随仓库分发**，用 `scripts/fetch_assets.sh` 拉取。
+
+## 代码中的两处上游字面量
+
+`src/shiwu/core/cipher.py` 里保留了 `b"FACENOX\x00\x01"` 与 `"facenox-biometric-key"`。
+它们是加密数据的格式标识与钥匙串条目名，不是项目名 —— 改动会导致已有备份与密钥读不回来。
+说明见 `licenses/README.md`。

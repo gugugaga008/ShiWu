@@ -1,0 +1,66 @@
+# ============================================================
+# 识务 (ShiWu)
+#
+# 只忽略两类东西：
+#   1. 可再生成 —— 依赖、构建产物、缓存
+#   2. 本机私有 —— 运行数据、环境变量、编辑器与系统文件
+#
+# 明确不忽略（打包/运行必需，属于源文件）：
+#   apps/desktop/build/entitlements.mac.plist   macOS 相机权限，缺了 hardened runtime 直接拒
+#   packaging/shiwu.spec                        PyInstaller 打包配置
+#   src/shiwu/assets/models/*.onnx              人脸检测 / 识别 / 活体模型
+#   apps/web/.env.example                       环境变量模板
+#   tests/fixtures/eval/gt_tracks.json          跨视频评测的 ground truth
+#
+# 注意：gitignore 不支持行尾注释，注释必须独占一行。
+# ============================================================
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+
+# ---------- Node / 前端 ----------
+node_modules/
+pnpm-debug.log*
+__screenshots__/
+
+# 前端构建产物（base 为 /ui/，由 vite build 生成）
+apps/web/dist/
+
+# ---------- PyInstaller 产物 ----------
+# 必须带前导斜杠：不带的话 `build/` 会连 apps/desktop/build/ 一起忽略，
+# 而 entitlements.mac.plist 是必须提交的打包源文件。
+/dist/
+/build/
+
+# ---------- Electron 打包产物 ----------
+# electron-builder 的 directories.output = release
+apps/desktop/release/
+
+# ---------- 运行数据 ----------
+# 首次运行自动创建，产品默认数据为空。含 events.db / gallery / 机器密钥 / 日志，绝不入库。
+/var/
+
+# ---------- 测试素材与产物 ----------
+# 不随仓库分发，用 scripts/fetch_assets.sh 拉取
+assets/videos/
+assets/preview/
+assets/raw/
+
+# ---------- 环境变量 ----------
+.env
+.env.*
+!.env.example
+
+# ---------- 编辑器 ----------
+# 不忽略 .vscode/：apps/web/.vscode/ 是随前端分发的推荐配置
+.idea/
+*.swp
+
+# ---------- 系统 ----------
+.DS_Store
+._*
+Thumbs.db
