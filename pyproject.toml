@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shiwu"
+version = "1.2.0"
+description = "识务：本机人脸识别预警服务（识别管道 + 规则引擎）"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "AGPL-3.0-only" }
+dependencies = [
+    "fastapi==0.135.2",
+    "uvicorn[standard]==0.42.0",
+    "httpx==0.28.1",
+    "pydantic==2.12.5",
+    "python-multipart==0.0.22",
+    "sqlalchemy[asyncio]==2.0.48",
+    "alembic==1.18.4",
+    "aiosqlite==0.22.1",
+    "ulid==1.1",
+    "numpy==2.4.3",
+    "opencv-python==4.13.0.92",
+    "onnxruntime==1.24.4",
+    "lap==0.5.13",
+    "scikit-learn==1.9.1",
+    "pillow==12.3.0",
+    "websockets==17.2",
+    "cryptography==46.0.5",
+    "keyring==25.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+    "aiosmtpd==1.4.6",
+    "pyinstaller==6.22.3",
+]
+
+[project.scripts]
+shiwu = "shiwu.__main__:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["shiwu*"]
+
+[tool.setuptools.package-data]
+shiwu = [
+    "alembic.ini",
+    "assets/models/*.onnx",
+    "migrations/script.py.mako",
+    "migrations/versions/*.py",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]

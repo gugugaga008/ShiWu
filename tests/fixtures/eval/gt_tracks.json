@@ -1,0 +1,12 @@
+{
+  "_doc": "人工核对的轨迹真值（fps=5, min_face=40 下的 ByteTrack track_id；6145693 用 fps=10, min_face=20）。值：已注册姓名 / unknown（未注册的人）/ ?（不确定，仅当被识别为视频中不存在的身份时计误识）。负数 track_id 不稳定，一律视为 ?。",
+  "assets/videos/pexels_6760590.mp4": {"expect": ["厨房-演员A", "厨房-演员C"],
+    "tracks": {"1": "unknown", "2": "unknown", "3": "厨房-演员A", "4": "厨房-演员C"}},
+  "assets/videos/pexels_9652478.mp4": {"expect": ["户外-演员B"],
+    "tracks": {"1": "unknown", "4": "unknown", "5": "户外-演员B", "3": "?", "7": "?"}},
+  "assets/videos/pexels_9652480.mp4": {"expect": ["户外-演员B"],
+    "tracks": {"1": "unknown", "2": "户外-演员B", "3": "户外-演员B"}},
+  "assets/videos/pexels_6145693.mp4": {"expect": ["街头-演员D"],
+    "tracks": {"1": "街头-演员D", "9": "街头-演员D", "2": "unknown", "3": "unknown", "4": "unknown",
+               "6": "unknown", "7": "unknown", "8": "unknown"}}
+}

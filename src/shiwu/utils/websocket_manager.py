@@ -1,0 +1,317 @@
+"""
+WebSocket manager for handling real-time streaming connections
+"""
+
+import asyncio
+import json
+import logging
+from typing import Dict, Set, Optional
+
+from fastapi import WebSocket
+from shiwu.core.models import FaceTracker
+from shiwu.config.models import FACE_TRACKER_CONFIG
+from shiwu.services.time_authority_service import get_time_authority
+from shiwu.time_utils import local_now
+
+logger = logging.getLogger(__name__)
+
+
+class ConnectionManager:
+    """Manages WebSocket connections for real-time streaming"""
+
+    def __init__(self):
+        self.active_connections: Dict[str, WebSocket] = {}
+        self.connection_metadata: Dict[str, dict] = {}
+        self.streaming_tasks: Dict[str, asyncio.Task] = {}
+        self.fps_tracking: Dict[str, dict] = {}
+        self.face_trackers: Dict[str, FaceTracker] = {}
+
+    async def connect(
+        self, websocket: WebSocket, client_id: str, *, enable_tracking: bool = True
+    ) -> bool:
+        """
+        Accept a new WebSocket connection
+
+        Args:
+            websocket: WebSocket connection
+            client_id: Unique client identifier
+
+        Returns:
+            True if connection successful, False otherwise
+        """
+        try:
+            await websocket.accept()
+            self.active_connections[client_id] = websocket
+            self.connection_metadata[client_id] = {
+                "connected_at": local_now(),
+                "last_activity": local_now(),
+                "message_count": 0,
+                "streaming": False,
+            }
+
+            if enable_tracking:
+                self.fps_tracking[client_id] = {
+                    "timestamps": [],
+                    "max_samples": 30,
+                    "last_update": local_now(),
+                    "current_fps": 30,
+                }
+
+                self.face_trackers[client_id] = FaceTracker(
+                    track_thresh=FACE_TRACKER_CONFIG["track_thresh"],
+                    match_thresh=FACE_TRACKER_CONFIG["match_thresh"],
+                    track_buffer=FACE_TRACKER_CONFIG["track_buffer"],
+                    frame_rate=FACE_TRACKER_CONFIG["frame_rate"],
+                )
+
+            await self.send_personal_message(
+                {
+                    "type": "connection",
+                    "status": "connected",
+                    "client_id": client_id,
+                    "timestamp": get_time_authority().current_time_utc().isoformat(),
+                },
+                client_id,
+            )
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to connect client {client_id}: {e}")
+            return False
+
+    async def disconnect(self, client_id: str):
+        """
+        Disconnect a client
+
+        Args:
+            client_id: Client identifier to disconnect
+        """
+        if client_id in self.active_connections:
+            websocket = self.active_connections[client_id]
+
+            if client_id in self.streaming_tasks:
+                self.streaming_tasks[client_id].cancel()
+                del self.streaming_tasks[client_id]
+
+            try:
+                # Check if the connection is still "open" before closing
+                if websocket.client_state.name == "CONNECTED":
+                    await websocket.close(code=1000)
+            except Exception:
+                pass  # Ignore errors during shutdown
+
+            del self.active_connections[client_id]
+            if client_id in self.connection_metadata:
+                del self.connection_metadata[client_id]
+            if client_id in self.fps_tracking:
+                del self.fps_tracking[client_id]
+            if client_id in self.face_trackers:
+                del self.face_trackers[client_id]
+            try:
+                from shiwu.core.lifespan import liveness_detector
+
+                if liveness_detector and hasattr(liveness_detector, "clear_namespace"):
+                    liveness_detector.clear_namespace(client_id)
+            except Exception:
+                pass
+
+    async def disconnect_all(self):
+        """Disconnect all active clients to force reconnection with updated organization scope."""
+        client_ids = list(self.active_connections.keys())
+        for cid in client_ids:
+            try:
+                await self.disconnect(cid)
+            except Exception as e:
+                logger.warning(f"Error disconnecting client {cid}: {e}")
+
+    async def send_personal_message(self, message: dict, client_id: str) -> bool:
+        """
+        Send message to specific client
+
+        Args:
+            message: Message to send
+            client_id: Target client identifier
+
+        Returns:
+            True if sent successfully, False otherwise
+        """
+        if client_id not in self.active_connections:
+            return False
+
+        try:
+            websocket = self.active_connections[client_id]
+            await websocket.send_text(json.dumps(message))
+
+            if client_id in self.connection_metadata:
+                self.connection_metadata[client_id]["last_activity"] = local_now()
+                self.connection_metadata[client_id]["message_count"] += 1
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to send message to {client_id}: {e}")
+            await self.disconnect(client_id)
+            return False
+
+    async def broadcast(self, message: dict, exclude: Optional[Set[str]] = None):
+        """
+        Broadcast message to all connected clients
+
+        Args:
+            message: Message to broadcast
+            exclude: Set of client IDs to exclude from broadcast
+        """
+        exclude = exclude or set()
+
+        disconnected_clients = []
+
+        for client_id, websocket in self.active_connections.items():
+            if client_id in exclude:
+                continue
+
+            try:
+                await websocket.send_text(json.dumps(message))
+
+                if client_id in self.connection_metadata:
+                    self.connection_metadata[client_id]["last_activity"] = local_now()
+                    self.connection_metadata[client_id]["message_count"] += 1
+
+            except Exception as e:
+                logger.error(f"Failed to broadcast to {client_id}: {e}")
+                disconnected_clients.append(client_id)
+
+        for client_id in disconnected_clients:
+            await self.disconnect(client_id)
+
+    async def send_error(
+        self, client_id: str, error_message: str, error_code: str = None
+    ) -> bool:
+        """
+        Send error message to client
+
+        Args:
+            client_id: Target client identifier
+            error_message: Error message
+            error_code: Optional error code
+
+        Returns:
+            True if sent successfully, False otherwise
+        """
+        message = {
+            "type": "error",
+            "data": {
+                "message": error_message,
+                "code": error_code,
+                "timestamp": get_time_authority().current_time_utc().isoformat(),
+            },
+        }
+
+        return await self.send_personal_message(message, client_id)
+
+    async def start_streaming(self, client_id: str):
+        """
+        Mark client as streaming
+
+        Args:
+            client_id: Client identifier
+        """
+        if client_id in self.connection_metadata:
+            self.connection_metadata[client_id]["streaming"] = True
+
+            await self.send_personal_message(
+                {
+                    "type": "streaming",
+                    "status": "started",
+                    "timestamp": get_time_authority().current_time_utc().isoformat(),
+                },
+                client_id,
+            )
+
+    async def stop_streaming(self, client_id: str):
+        """
+        Stop streaming for client
+
+        Args:
+            client_id: Client identifier
+        """
+        if client_id in self.connection_metadata:
+            self.connection_metadata[client_id]["streaming"] = False
+
+        if client_id in self.streaming_tasks:
+            self.streaming_tasks[client_id].cancel()
+            del self.streaming_tasks[client_id]
+
+            await self.send_personal_message(
+                {
+                    "type": "streaming",
+                    "status": "stopped",
+                    "timestamp": get_time_authority().current_time_utc().isoformat(),
+                },
+                client_id,
+            )
+
+    def get_connection_info(self, client_id: str) -> Optional[dict]:
+        """
+        Get connection information for client
+
+        Args:
+            client_id: Client identifier
+
+        Returns:
+            Connection metadata or None if not found
+        """
+        return self.connection_metadata.get(client_id)
+
+    def update_fps(self, client_id: str) -> int:
+        """
+        Update and get FPS for a client based on frame timestamps
+
+        Args:
+            client_id: Client identifier
+
+        Returns:
+            Current FPS (defaults to 30 if not enough samples)
+        """
+        if client_id not in self.fps_tracking:
+            return 30
+
+        now = local_now()
+        tracking = self.fps_tracking[client_id]
+        tracking["timestamps"].append(now)
+
+        if len(tracking["timestamps"]) > tracking["max_samples"]:
+            tracking["timestamps"].pop(0)
+
+        if (now - tracking["last_update"]).total_seconds() >= 0.1 and len(
+            tracking["timestamps"]
+        ) >= 2:
+            time_span = (
+                tracking["timestamps"][-1] - tracking["timestamps"][0]
+            ).total_seconds()
+            frame_count = len(tracking["timestamps"]) - 1
+
+            if time_span > 0:
+                fps = frame_count / time_span
+                tracking["current_fps"] = max(1, min(120, int(round(fps))))
+                tracking["last_update"] = now
+
+        return tracking["current_fps"]
+
+    def get_face_tracker(self, client_id: str) -> Optional[FaceTracker]:
+        """
+        Get face tracker instance for a client.
+
+        Args:
+            client_id: Client identifier
+
+        Returns:
+            FaceTracker instance or None if not found
+        """
+        return self.face_trackers.get(client_id)
+
+
+# Global connection manager instance
+manager = ConnectionManager()
+
+notification_manager = ConnectionManager()

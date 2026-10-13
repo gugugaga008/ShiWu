@@ -1,0 +1,54 @@
+from typing import AsyncGenerator, Annotated, Optional
+from fastapi import Depends, Header, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from shiwu.database.session import AsyncSessionLocal
+from shiwu.database.repository import AttendanceRepository
+from shiwu.core import lifespan
+
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+
+
+def normalize_organization_id(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+async def get_organization_id(
+    x_shiwu_organization: Annotated[
+        Optional[str], Header(alias="X-Shiwu-Organization")
+    ] = None,
+) -> Optional[str]:
+    return normalize_organization_id(x_shiwu_organization)
+
+
+def get_face_detector():
+    if not lifespan.face_detector:
+        raise HTTPException(status_code=500, detail="Face detector not initialized")
+    return lifespan.face_detector
+
+
+def get_liveness_detector():
+    if not lifespan.liveness_detector:
+        raise HTTPException(status_code=500, detail="Liveness detector not initialized")
+    return lifespan.liveness_detector
+
+
+def get_face_recognizer():
+    if not lifespan.face_recognizer:
+        raise HTTPException(status_code=500, detail="Face recognizer not initialized")
+    return lifespan.face_recognizer
+
+
+async def get_repository(
+    session: Annotated[AsyncSession, Depends(get_db)],
+    organization_id: Annotated[Optional[str], Depends(get_organization_id)],
+) -> AttendanceRepository:
+    return AttendanceRepository(session, organization_id=organization_id)
