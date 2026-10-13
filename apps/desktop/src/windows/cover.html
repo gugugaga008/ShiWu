@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>2026年Q4预算.xlsx - 表格</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<style>
+*{box-sizing:border-box}body{margin:0;font:13px "Noto Sans CJK SC","Microsoft YaHei","PingFang SC",sans-serif;background:#fff;color:#222;height:100vh;display:flex;flex-direction:column;overflow:hidden;cursor:default}
+.title{background:#1f7244;color:#fff;padding:6px 14px;display:flex;gap:18px;align-items:center}
+.title b{font-weight:600}.menu{background:#f3f3f3;border-bottom:1px solid #ddd;padding:5px 14px;display:flex;gap:18px;color:#444}
+.ribbon{background:#fafafa;border-bottom:1px solid #ddd;padding:8px 14px;display:flex;gap:10px}
+.ribbon span{border:1px solid #ddd;background:#fff;padding:3px 10px;border-radius:3px}
+.fx{display:flex;border-bottom:1px solid #ddd}.fx .ref{width:80px;padding:4px 8px;border-right:1px solid #ddd}.fx .val{padding:4px 8px;flex:1}
+.grid{flex:1;overflow:hidden}table{border-collapse:collapse;width:100%}
+th,td{border:1px solid #e1e1e1;padding:3px 8px;height:24px;white-space:nowrap}
+th{background:#f3f3f3;font-weight:normal;color:#555}td.n{text-align:right;font-variant-numeric:tabular-nums}
+tr:first-child td{font-weight:600;background:#e8f2ec}td.sel{outline:2px solid #1f7244;outline-offset:-2px}
+.status{background:#1f7244;color:#fff;padding:3px 14px;font-size:12px;display:flex;justify-content:space-between}
+</style></head><body>
+<div class="title"><b>表格</b><span>2026年Q4预算.xlsx</span><span style="margin-left:auto;opacity:.8">已自动保存</span></div>
+<div class="menu"><span>文件</span><span>开始</span><span>插入</span><span>页面布局</span><span>公式</span><span>数据</span><span>审阅</span><span>视图</span></div>
+<div class="ribbon"><span>粘贴</span><span>B</span><span>I</span><span>U</span><span>合并居中</span><span>¥ 货币</span><span>条件格式</span><span>求和 Σ</span><span>筛选</span></div>
+<div class="fx"><div class="ref" id="ref">F8</div><div class="val" id="fx">=SUM(B8:E8)</div></div>
+<div class="grid"><table id="t"></table></div>
+<div class="status"><span>就绪</span><span id="sum">求和：0</span></div>
+<script>
+const depts=['研发中心','市场部','销售一部','销售二部','客户成功','产品部','财务部','人力资源','行政部','法务','供应链','数据平台','安全合规','海外业务','品牌公关','培训中心','采购部','质量管理','IT 运维','战略投资','合计']
+const cols=['A','B','C','D','E','F','G','H']
+const t=document.getElementById('t')
+let h='<tr><th></th>'+cols.map(c=>'<th>'+c+'</th>').join('')+'</tr>'
+h+='<tr><th>1</th><td>部门</td><td>10月</td><td>11月</td><td>12月</td><td>预留</td><td>Q4 合计</td><td>同比</td><td>负责人</td></tr>'
+const names=['张伟','王芳','李娜','刘洋','陈静','杨帆','赵磊','黄敏','周杰','吴婷','徐涛','孙悦','马超','朱琳','胡斌','郭敏','何平','高翔','林峰','罗丹','—']
+depts.forEach((d,i)=>{const v=[0,1,2,3].map(()=>Math.round(20+Math.random()*180)*1000);const s=v.reduce((a,b)=>a+b,0)
+h+=`<tr><th>${i+2}</th><td>${d}</td>${v.map(x=>`<td class="n">${x.toLocaleString()}</td>`).join('')}<td class="n" id="s${i}">${s.toLocaleString()}</td><td class="n">${(Math.random()*30-8).toFixed(1)}%</td><td>${names[i]}</td></tr>`})
+t.innerHTML=h
+// 假装在工作：选中格子缓慢移动、公式栏变化
+let r=0;setInterval(()=>{document.querySelectorAll('.sel').forEach(e=>e.classList.remove('sel'));const c=document.getElementById('s'+r);if(c){c.classList.add('sel');document.getElementById('ref').textContent='F'+(r+2);document.getElementById('fx').textContent=`=SUM(B${r+2}:E${r+2})`;document.getElementById('sum').textContent='求和：'+c.textContent}r=(r+1)%20},1400)
+</script></body></html>

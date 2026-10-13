@@ -1,0 +1,133 @@
+{
+  "name": "shiwu-desktop",
+  "productName": "识务",
+  "version": "1.1.0",
+  "private": true,
+  "description": "识务：本地人脸识别预警桌面端（Electron 主进程 + 托管 Python 服务）",
+  "license": "AGPL-3.0-only",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/",
+    "dist:linux": "electron-builder --linux AppImage deb --x64",
+    "dist:win": "electron-builder --win nsis --x64",
+    "dist:mac": "electron-builder --mac dmg"
+  },
+  "devDependencies": {
+    "electron": "42.9.0",
+    "electron-builder": "^26.0.12"
+  },
+  "author": {
+    "name": "ShiWu",
+    "email": "dev@shiwu.local"
+  },
+  "homepage": "https://github.com/gugugaga008/ShiWu",
+  "build": {
+    "appId": "com.shiwu.app",
+    "productName": "识务",
+    "executableName": "shiwu",
+    "artifactName": "ShiWu-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../../dist/server",
+        "to": "server",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "asar": true,
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Utility",
+      "icon": "assets/icons/icon.png",
+      "synopsis": "本地人脸识别：识务自动提醒/遮挡",
+      "maintainer": "ShiWu <dev@shiwu.local>",
+      "desktop": {
+        "entry": {
+          "Name": "识务",
+          "Comment": "本地人脸识别预警"
+        }
+      },
+      "syncDesktopName": true
+    },
+    "deb": {
+      "depends": [
+        "libnotify4",
+        "libxtst6",
+        "libnss3",
+        "xdotool"
+      ],
+      "recommends": [
+        "wmctrl",
+        "pulseaudio-utils"
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icons/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "shortcutName": "识务",
+      "createDesktopShortcut": true,
+      "runAfterFinish": true
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.productivity",
+      "icon": "assets/icons/icon.png",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSCameraUsageDescription": "识务需要使用摄像头在本机识别人脸，画面与人脸数据不会离开这台电脑。",
+        "NSAppleEventsUsageDescription": "识务需要控制其它程序（最小化窗口、切换到指定程序、静音）来执行你设置的规则动作。",
+        "NSAccessibilityUsageDescription": "识务需要「辅助功能」权限来模拟锁屏快捷键和隐藏其它窗口。",
+        "LSUIElement": false
+      },
+      "identity": "-"
+    },
+    "dmg": {
+      "title": "识务 ${version}"
+    },
+    "electronDist": "node_modules/electron/dist",
+    "electronVersion": "42.9.0",
+    "npmRebuild": false
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron"
+    ]
+  },
+  "desktopName": "shiwu.desktop"
+}

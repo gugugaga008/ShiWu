@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>识务 · 摄像头采集</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src ws://127.0.0.1:*; media-src mediastream: blob:">
+<style>body{margin:0;background:#111;color:#ddd;font:12px sans-serif}video{width:100%;display:block}#s{padding:4px 8px}</style></head>
+<body><video id="v" autoplay muted playsinline></video><div id="s">启动中…</div>
+<script>
+// getUserMedia → canvas → JPEG → WebSocket /boss/camera/push（二进制，每帧一条）
+const q = new URLSearchParams(location.search)
+const port = q.get('port'), token = q.get('token'), name = q.get('name') || 'electron'
+const W = +q.get('w') || 1280, H = +q.get('h') || 720
+const st = document.getElementById('s'), v = document.getElementById('v')
+let ws, fps = 8, sent = 0, idle = false, stream
+const log = (m) => { st.textContent = m; console.log('[camera] ' + m) }
+async function start() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: W }, height: { ideal: H }, deviceId: q.get('device') ? { exact: q.get('device') } : undefined }, audio: false })
+  } catch (e) {
+    log('无法打开摄像头：' + (e.name === 'NotReadableError' ? '设备被其他程序占用' : e.name === 'NotAllowedError' ? '没有摄像头权限' : e.message))
+    return
+  }
+  v.srcObject = stream
+  const t = stream.getVideoTracks()[0]
+  log('摄像头：' + t.label + ' ' + JSON.stringify(t.getSettings().width) + 'x' + JSON.stringify(t.getSettings().height))
+  t.onended = () => { log('摄像头已断开，3 秒后重试'); setTimeout(start, 3000) }
+  connect()
+}
+function connect() {
+  ws = new WebSocket(`ws://127.0.0.1:${port}/boss/camera/push?token=${encodeURIComponent(token)}&name=${name}`)
+  ws.binaryType = 'arraybuffer'
+  ws.onmessage = (m) => {
+    const d = JSON.parse(m.data)
+    idle = d.type === 'idle'
+    // 服务端自适应抽帧：推送略高于处理帧率即可，省带宽/CPU
+    if (d.type === 'ack' && d.target_fps) fps = Math.min(12, Math.max(1, d.target_fps * 1.5))
+  }
+  ws.onclose = () => setTimeout(connect, 2000)
+}
+const c = document.createElement('canvas')
+async function loop() {
+  const interval = idle ? 1000 : 1000 / fps
+  if (ws && ws.readyState === 1 && v.videoWidth && ws.bufferedAmount < 2e6) {
+    c.width = v.videoWidth; c.height = v.videoHeight
+    c.getContext('2d').drawImage(v, 0, 0)
+    const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.8))
+    ws.send(await blob.arrayBuffer())
+    if (++sent % 50 === 0) log(`已推送 ${sent} 帧 · ${fps.toFixed(1)} fps${idle ? '（服务端未在监控）' : ''}`)
+  }
+  setTimeout(loop, interval)
+}
+start().then(loop)
+// 静默失败是这类 bug 最难查的地方，所以主动报一次卡在哪一环：
+// 视频元素没拿到尺寸（窗口被系统当成隐藏）/ WebSocket 没连上 / 服务端没在监控。
+setTimeout(() => {
+  if (sent > 0) return
+  console.log(`[camera] 诊断 8 秒零帧：videoWidth=${v.videoWidth} videoHeight=${v.videoHeight} readyState=${v.readyState} paused=${v.paused} wsState=${ws ? ws.readyState : 'null'} idle=${idle}`)
+}, 8000)
+</script></body></html>
