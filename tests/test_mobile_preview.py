@@ -442,6 +442,70 @@ def test_create_during_close_join_keeps_new_session(preview, monkeypatch):
     assert not old.thread.is_alive()
 
 
+def test_list_restores_existing_qr_without_renewal_or_reissuing_credentials(api, preview):
+    assert api.get("/boss/mobile-preview", headers={"X-Shiwu-Token": "wrong"}).status_code == 401
+    assert api.get("/boss/mobile-preview").json() == []
+    created = api.post("/boss/mobile-preview", json={"source": "摄像头 A"}).json()
+    parts = decode(created)
+    response = api.get("/boss/mobile-preview")
+    assert_headers(response)
+    assert response.json() == [{**created, "source": "摄像头 A"}]
+    for _ in range(3):
+        restored = api.get("/boss/mobile-preview").json()[0]
+        assert restored["id"] == created["id"]
+        assert restored["qr"] == created["qr"]
+        assert restored["expires_at"] == created["expires_at"]
+    # 即使管理客户端不再展示弹窗，手机仍通过原始凭据读取同一实例。
+    with lan(created)[0] as client:
+        assert client.get(parts.path + "/frame.jpg", headers=auth(parts)).content == b"source-a"
+    assert len(preview._sessions) == 1
+    api.delete("/boss/mobile-preview/" + created["id"])
+    assert api.get("/boss/mobile-preview").json() == []
+    wait_closed(parts.port, parts.hostname)
+
+
+@pytest.mark.parametrize("reason", ["expiry", "stop", "replace"])
+def test_list_never_restores_expired_or_invalid_source_sessions(preview, reason):
+    result = preview.create("摄像头 A")
+    parts = decode(result)
+    if reason == "expiry":
+        preview._sessions[result["id"]].deadline = time.monotonic() - 1
+    elif reason == "stop":
+        preview.runtime.runners["摄像头 A"].pipeline.stop()
+    else:
+        preview.runtime.runners["摄像头 A"] = runner()
+    assert preview.sessions() == []
+    wait_closed(parts.port, parts.hostname)
+
+
+def test_disconnect_source_revokes_all_concurrent_sessions_and_preserves_other_source(api, preview):
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        created = list(pool.map(lambda _: preview.create("摄像头 A"), range(2)))
+    other = preview.create("摄像头 B")
+    assert len(preview.sessions()) == 3
+    for headers in ({"X-Shiwu-Token": "wrong"},):
+        assert api.delete("/boss/mobile-preview", params={"source": "摄像头 A"}, headers=headers).status_code == 401
+    response = api.delete("/boss/mobile-preview", params={"source": "摄像头 A"})
+    assert response.json() == {"success": True}
+    assert_headers(response)
+    for result in created:
+        parts = decode(result)
+        assert preview.frame(result["id"], auth(parts)["Authorization"], result["address"])[0] == 410
+    assert [s["id"] for s in preview.sessions()] == [other["id"]]
+    with lan(other)[0] as client:
+        parts = decode(other)
+        assert client.get(parts.path + "/frame.jpg", headers=auth(parts)).content == b"source-b"
+    assert api.delete("/boss/mobile-preview", params={"source": "摄像头 A"}).status_code == 200
+    assert api.delete("/boss/mobile-preview").status_code == 422
+    assert api.delete("/boss/mobile-preview", params={"source": ""}).status_code == 422
+
+
+def test_list_not_exposed_by_lan_listener(preview):
+    created = preview.create("摄像头 A")
+    with lan(created)[0] as client:
+        assert client.get("/boss/mobile-preview", headers=auth(decode(created))).status_code == 404
+
+
 def test_local_interface_enumeration_is_private():
     # 使用实际系统接口；允许离线机器返回空列表，不依赖联网或固定网卡。
     for address in mobile.local_private_ipv4():

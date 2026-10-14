@@ -164,10 +164,22 @@ class MobilePreviewReq(BaseModel):
     address: Optional[str] = Field(None, min_length=1, max_length=15)
 
 
+@router.get("/mobile-preview")
+def mobile_preview_list(response: Response):
+    response.headers.update(SECURITY_HEADERS)
+    return runtime.mobile_preview.sessions()
+
+
 @router.post("/mobile-preview")
 def mobile_preview_create(req: MobilePreviewReq, response: Response):
     response.headers.update(SECURITY_HEADERS)
     return runtime.mobile_preview.create(req.source, req.address)
+
+
+@router.delete("/mobile-preview")
+def mobile_preview_disconnect(response: Response, source: str = Query(..., min_length=1, max_length=32)):
+    response.headers.update(SECURITY_HEADERS)
+    return runtime.mobile_preview.revoke_source(source)
 
 
 @router.delete("/mobile-preview/{sid}")

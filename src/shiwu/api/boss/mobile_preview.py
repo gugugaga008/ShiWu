@@ -184,6 +184,7 @@ class _Session:
     started_at: float | None
     expires_at: float
     deadline: float
+    qr: str = ""
 
 
 class _HTTPServer(ThreadingHTTPServer):
@@ -354,7 +355,7 @@ class MobilePreview:
             if runner is None or not self._running(runner):
                 raise HTTPException(409, "视频源不存在或已停止，请先启动该视频源")
             if len(self._sessions) >= self.MAX_SESSIONS:
-                raise HTTPException(429, "手机预览会话已达上限，请先关闭已有预览")
+                raise HTTPException(429, "手机预览会话已达上限，请先断开已有手机预览")
             listener = self._listeners.get(selected)
             if listener is None:
                 try:
@@ -374,19 +375,41 @@ class MobilePreview:
             except Exception:
                 self._prune_locked()
                 raise
+            session.qr = "data:image/png;base64," + base64.b64encode(output.getvalue()).decode()
             self._sessions[session.id] = session
             if listener.thread is None:
                 listener.thread = threading.Thread(target=self._serve, args=(selected, listener),
                                                    daemon=True, name="mobile-preview")
                 listener.thread.start()
-            return {"id": session.id, "qr": "data:image/png;base64," + base64.b64encode(output.getvalue()).decode(),
+            return {"id": session.id, "qr": session.qr,
                     "expires_at": session.expires_at, "addresses": addresses, "address": selected}
+
+    def sessions(self) -> list[dict]:
+        """管理端恢复现有二维码，不续期，也不重新签发手机凭据。"""
+        try:
+            addresses = local_private_ipv4()
+        except (OSError, AttributeError):
+            raise HTTPException(503, "无法获取本机局域网地址") from None
+        with self._lock:
+            self._prune_locked()
+            return [{"id": s.id, "source": s.source, "qr": s.qr,
+                     "expires_at": s.expires_at, "addresses": addresses, "address": s.address}
+                    for s in self._sessions.values()]
 
     def revoke(self, sid: str) -> dict:
         with self._lock:
             self._sessions.pop(sid, None)
             self._prune_locked()
-        # 幂等撤销，失效后关闭弹窗无需报错。
+        # 幂等撤销，已过期或已停止的视频源无需报错。
+        return {"success": True}
+
+    def revoke_source(self, source: str) -> dict:
+        """按视频源原子撤销，覆盖多标签页同时生成的所有二维码。"""
+        with self._lock:
+            for sid, session in list(self._sessions.items()):
+                if session.source == source:
+                    del self._sessions[sid]
+            self._prune_locked()
         return {"success": True}
 
     def invalidate_runner(self, runner):
