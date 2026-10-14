@@ -46,43 +46,6 @@ def fake_cameras() -> Dict[str, str]:
     return out
 
 
-def _collapse_consecutive_indices(cams: List[dict]) -> List[dict]:
-    """Mac 上同一物理设备常占连续索引；无名则每段连续 run 只留第一个。"""
-    if len(cams) <= 1:
-        return cams
-    out: List[dict] = []
-    run: List[dict] = [cams[0]]
-
-    def flush():
-        if not run:
-            return
-        keep = [run[0]]
-        seen = {run[0].get("device_name") or ""}
-        seen.discard("")
-        for item in run[1:]:
-            name = item.get("device_name") or ""
-            if name and name not in seen:
-                keep.append(item)
-                seen.add(name)
-        out.extend(keep)
-        run.clear()
-
-    for item in cams[1:]:
-        try:
-            cur, prev = int(item["id"]), int(run[-1]["id"])
-        except (TypeError, ValueError):
-            flush()
-            run.append(item)
-            continue
-        if cur == prev + 1:
-            run.append(item)
-        else:
-            flush()
-            run.append(item)
-    flush()
-    return out
-
-
 def _label_real_cameras(cams: List[dict]) -> None:
     real = [c for c in cams if not c.get("fake")]
     if len(real) == 1:
@@ -114,23 +77,16 @@ def list_cameras(probe_max: int = 4) -> List[dict]:
                 name = (d / "name").read_text().strip() if (d / "name").exists() else d.name
                 real.append({"id": idx, "name": name, "path": f"/dev/{d.name}", "fake": False})
     else:
-        # Windows / macOS 没有可靠的免打开枚举方式：探测前几个索引（被本应用占用的直接列出）
-        backend = cv2.CAP_DSHOW if platform.system() == "Windows" else cv2.CAP_ANY
-        for i in range(probe_max):
-            sid = str(i)
-            if any(c["id"] == sid for c in cams):
-                continue
-            device_name = ""
-            if sid in _OPEN_DEVICES:
-                real.append({"id": sid, "path": sid, "fake": False, "device_name": device_name})
-                continue
-            cap = cv2.VideoCapture(i, backend)
-            ok = cap.isOpened()
-            cap.release()
-            if ok:
-                real.append({"id": sid, "path": sid, "fake": False, "device_name": device_name})
-        if platform.system() == "Darwin":
-            real = _collapse_consecutive_indices(real)
+        # Windows / macOS：枚举时不得打开设备，否则会点亮摄像头指示灯。
+        # 仅列出本进程已打开的设备；未打开时给一个占位项，真正打开发生在用户启动画面源之后。
+        _ = probe_max
+        seen = {c["id"] for c in cams}
+        for sid in list(_OPEN_DEVICES):
+            if sid not in seen:
+                real.append({"id": sid, "path": sid, "fake": False, "device_name": ""})
+                seen.add(sid)
+        if not real and "0" not in seen:
+            real.append({"id": "0", "path": "0", "fake": False, "device_name": ""})
     _label_real_cameras(real)
     for c in real:
         c.pop("device_name", None)

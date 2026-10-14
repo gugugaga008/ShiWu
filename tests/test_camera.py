@@ -20,6 +20,20 @@ def fake_cam(monkeypatch):
     monkeypatch.setenv("SHIWU_FAKE_CAMERAS", f"7={VIDEO}")
 
 
+def test_list_cameras_does_not_open_device(monkeypatch):
+    import cv2
+    import platform
+    monkeypatch.setattr(platform, "system", lambda: "Darwin")
+    monkeypatch.delenv("SHIWU_FAKE_CAMERAS", raising=False)
+
+    def boom(*_a, **_k):
+        raise AssertionError("枚举摄像头不得打开设备")
+
+    monkeypatch.setattr(cv2, "VideoCapture", boom)
+    cams = list_cameras()
+    assert any(c["id"] == "0" and not c.get("fake") for c in cams)
+
+
 def test_list_and_read_fake_camera(fake_cam):
     cams = list_cameras()
     c = [x for x in cams if x["id"] == "7"][0]

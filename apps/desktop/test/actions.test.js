@@ -123,6 +123,13 @@ test('macOS 锁屏：osascript 失败则回退 pmset / ScreenSaverEngine', async
   assert.match(r3.message, /辅助功能/)
 })
 
+test('macOS 系统通知同时弹出应用浮窗，避免授权失败时看不见', async () => {
+  const ui = fakeUi()
+  const r = await new ActionExecutor({ ui, sys: fakeSys('darwin'), logger: {} }).runOne({ type: 'notify' }, { name: '王总', role_label: '老板' })
+  assert.ok(r.ok)
+  assert.deepStrictEqual(ui.log.map((x) => x[0]), ['notify', 'toast'])
+})
+
 test('Linux 无通知守护进程时通知用应用浮窗兜底；插件可扩展', async () => {
   const ui = fakeUi()
   const ex = new ActionExecutor({ ui, sys: fakeSys('linux', [], { DISPLAY: ':0' }), logger: {} })

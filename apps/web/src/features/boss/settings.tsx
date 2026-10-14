@@ -235,7 +235,7 @@ function SettingsForm() {
             <Row label='开机自启' desc='登录系统后在托盘静默启动（Windows/macOS 登录项，Linux 写入 ~/.config/autostart）'>
               <Switch checked={s.autostart} onCheckedChange={(autostart) => set({ autostart })} />
             </Row>
-            <Row label='启动后自动开始监控' desc='使用「默认画面源」中保存的配置'>
+            <Row label='启动后自动开始监控' desc='只启动已保存的非摄像头默认源；打开软件不会自动点亮本机摄像头'>
               <Switch checked={s.auto_monitor} onCheckedChange={(auto_monitor) => set({ auto_monitor })} />
             </Row>
           </CardContent>

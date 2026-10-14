@@ -110,6 +110,7 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
+        "NSUserNotificationAlertStyle": "alert",
         "NSCameraUsageDescription": "识务需要使用摄像头在本机识别人脸，画面与人脸数据不会离开这台电脑。",
         "NSAppleEventsUsageDescription": "识务需要控制其它程序（最小化窗口、切换到指定程序、静音）来执行你设置的规则动作。",
         "NSAccessibilityUsageDescription": "识务需要「辅助功能」权限来模拟锁屏快捷键和隐藏其它窗口。",

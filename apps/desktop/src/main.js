@@ -124,13 +124,40 @@ function toast(title, body) {
   setTimeout(() => !win.isDestroyed() && win.close(), Number(env('SHIWU_TOAST_MS', 'SHIWU_TOAST_MS') || 8000))
 }
 
+let notifyGranted = null
+function prepareNotify() {
+  if (!Notification.isSupported()) {
+    notifyGranted = false
+    return Promise.resolve(false)
+  }
+  const req = Notification.requestPermission
+  if (typeof req !== 'function') {
+    notifyGranted = true
+    return Promise.resolve(true)
+  }
+  return Promise.resolve(req.call(Notification)).then((p) => {
+    notifyGranted = p === 'granted' || p === undefined || p === 'default'
+    return notifyGranted
+  }).catch(() => {
+    notifyGranted = false
+    return false
+  })
+}
+
 function notify(title, body) {
-  if (!Notification.isSupported()) return false
-  new Notification({
-    title, body, icon: path.join(ASSETS, 'icons', 'icon.png'),
-    urgency: 'critical', silent: false, closeButtonText: '关闭',
-  }).show()
-  return true
+  if (!Notification.isSupported() || notifyGranted === false) return false
+  try {
+    const n = new Notification({
+      title, body, icon: path.join(ASSETS, 'icons', 'icon.png'),
+      silent: false, closeButtonText: '关闭',
+    })
+    n.on?.('failed', (e) => log(`[notify] 系统通知失败：${e}`))
+    n.show()
+    return true
+  } catch (e) {
+    log(`[notify] 无法显示系统通知：${e.message || e}`)
+    return false
+  }
 }
 
 function playSound(file, volume) {
@@ -257,19 +284,23 @@ function closeCameraWindow() {
 const isPush = (s) => s && s.kind === 'camera' && String(s.uri).startsWith('push://')
 let lastPush = false
 
-async function startMonitoring(src) {
+async function startMonitoring(src, { allowCamera = true } = {}) {
   if (!src && (settings.default_sources || []).length) {
-    // 多路默认源：交给服务端一次启动
-    const st = await backend.json('/boss/pipeline/start-defaults', { method: 'POST' }).catch((e) => ({ start_errors: [{ error: e.message }] }))
+    const path = allowCamera ? '/boss/pipeline/start-defaults' : '/boss/pipeline/start-defaults?cameras=0'
+    const st = await backend.json(path, { method: 'POST' }).catch((e) => ({ start_errors: [{ error: e.message }] }))
     for (const e of st.start_errors || []) toast('画面源启动失败', `${e.name || ''} ${e.error}`)
-    log(`[monitor] 已启动默认源 ${(st.pipelines || []).map((p) => p.name).join('、')}`)
-    lastPush = (st.pipelines || []).some((p) => isPush(p.source))
+    if (st.cameras_skipped) log('[monitor] 进入软件不自动打开摄像头')
+    log(`[monitor] 已启动默认源 ${(st.pipelines || []).map((p) => p.name).join('、') || '（无）'}`)
+    lastPush = allowCamera && (st.pipelines || []).some((p) => isPush(p.source))
     if (lastPush && !paused) openCameraWindow()
     else closeCameraWindow()
     return
   }
   src = src || settings.default_source
   if (!src) return log('[monitor] 未设置默认画面源，等待在设置中选择')
+  if (!allowCamera && (src.kind === 'camera' || isPush(src))) {
+    return log('[monitor] 进入软件不自动打开摄像头，请手动开始监控')
+  }
   const body = { ...src, loop: true }
   if (src.kind === 'camera' && !String(src.uri).startsWith('push://')) {
     body.width = settings.camera_width
@@ -443,7 +474,10 @@ async function boot() {
   const login = app.getLoginItemSettings?.() || {}
   const autostarted = process.argv.includes('--autostart') || !!login.wasOpenedAsHidden || !!login.wasOpenedAtLogin
   if (env('SHIWU_START_HIDDEN', 'SHIWU_START_HIDDEN') !== '1' && !autostarted) openMain()
-  if (settings.auto_monitor && !env('SHIWU_AUTOSTART_VIDEO', 'SHIWU_AUTOSTART_VIDEO')) await startMonitoring()
+  await prepareNotify()
+  if (settings.auto_monitor && !env('SHIWU_AUTOSTART_VIDEO', 'SHIWU_AUTOSTART_VIDEO')) {
+    await startMonitoring(undefined, { allowCamera: false })
+  }
   // E2E：启动后自动开一路画面源
   if (env('SHIWU_AUTOSTART_VIDEO', 'SHIWU_AUTOSTART_VIDEO')) {
     await backend.json('/boss/pipeline/start', { method: 'POST', body: JSON.stringify({ kind: 'file', uri: env('SHIWU_AUTOSTART_VIDEO', 'SHIWU_AUTOSTART_VIDEO'), loop: false }) })

@@ -25,11 +25,11 @@ const notify = {
   async run(params, ctx) {
     const title = params.title || '老板来了！'
     const body = params.body || `${who(ctx.event)} 出现在镜头前`
-    const sysShown = ctx.ui.notify(title, body)
-    // Linux 无通知守护进程（或无 D-Bus）时系统通知会静默丢失，用应用内置浮窗兜底
+    const sysShown = await Promise.resolve(ctx.ui.notify(title, body))
+    // 系统通知可能静默失败（macOS 未授权、Linux 无通知服务）：应用浮窗兜底，保证用户能看见
     const daemon = ctx.ui.hasNotifyDaemon ? await ctx.ui.hasNotifyDaemon() : true
-    const needToast = params.toast ?? (ctx.sys.platform === 'linux' && !daemon)
-    if (needToast || !sysShown) ctx.ui.toast(title, body)
+    const needToast = params.toast ?? (!sysShown || ctx.sys.platform === 'darwin' || (ctx.sys.platform === 'linux' && !daemon))
+    if (needToast) ctx.ui.toast(title, body)
     return ok(sysShown ? (needToast ? '系统通知 + 应用浮窗' : '系统通知') : '系统通知不可用，已用应用浮窗')
   },
 }
