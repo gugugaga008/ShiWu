@@ -98,7 +98,7 @@ function PreviewSettings() {
     <Card>
       <CardHeader>
         <CardTitle className='flex items-center gap-2'><QrCode className='size-5' aria-hidden />手机扫码预览</CardTitle>
-        <CardDescription>隐藏二维码或关闭设置，手机仍可查看至本次会话到期。电脑不展示实时画面。</CardDescription>
+        <CardDescription>关闭弹窗或设置，手机仍可查看至本次会话到期。电脑不展示实时画面。</CardDescription>
       </CardHeader>
       <CardContent className='grid gap-3'>
         {isError && <p role='alert'>无法读取画面源状态，请稍后重试。</p>}
@@ -110,7 +110,7 @@ function PreviewSettings() {
             <MobilePreview source={p.name} disabled={!p.running} />
           </div>
         ))}
-        <p className='text-xs text-muted-foreground'>会话最长 10 分钟；到期后重新扫码。需要提前停止时，打开对应二维码并点击「断开手机预览」。</p>
+        <p className='text-xs text-muted-foreground'>会话时长在扫码时选择；到期后重新扫码。需要提前停止时，打开对应二维码并点击「断开手机预览」。</p>
       </CardContent>
     </Card>
   )

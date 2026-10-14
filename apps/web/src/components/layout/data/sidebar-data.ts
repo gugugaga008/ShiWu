@@ -7,7 +7,6 @@ import {
   Scale,
   Settings,
   Users,
-  MonitorPlay,
 } from 'lucide-react'
 import { type SidebarData } from '../types'
 
@@ -20,11 +19,6 @@ export const sidebarData: SidebarData = {
           title: '概览',
           url: '/',
           icon: LayoutDashboard,
-        },
-        {
-          title: '画面源',
-          url: '/sources',
-          icon: MonitorPlay,
         },
         {
           title: '人员管理',

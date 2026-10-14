@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { usePhotoAdd } from '@/hooks/use-photo-add'
 import { api, ROLE_LABEL, type Person } from '@/lib/api'
+import { cn } from '@/lib/utils'
 import { CaptureWorkspace } from './capture'
 import { Page } from './page'
 
@@ -48,6 +49,8 @@ function PhotoAdd() {
   const fileRef = useRef<HTMLInputElement>(null)
   const [verified, setVerified] = useState(false)
   const [selectedId, setSelectedId] = useState('')
+  const [dragging, setDragging] = useState(false)
+  const fileLocked = pending || creationUncertain || uploadUncertain
   const { data: people = [] } = useQuery({ queryKey: ['people'], queryFn: async () => (await api.get<Person[]>('/people')).data, enabled: creationUncertain })
   const selected = people.find((item) => item.person_id === selectedId)
   useEffect(() => {
@@ -86,7 +89,26 @@ function PhotoAdd() {
         </div>
         <div className='grid gap-1.5'>
           <Label htmlFor='photo-person-files'><ImagePlus className='size-4' aria-hidden />人员照片（可多选）</Label>
-          <Input ref={fileRef} id='photo-person-files' type='file' accept='image/*' multiple disabled={pending || creationUncertain || uploadUncertain} onChange={(event) => update({ files: Array.from(event.target.files ?? []) })} />
+          <div
+            className={cn(
+              'cursor-pointer rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground',
+              dragging && 'border-primary bg-primary/5 text-foreground',
+              fileLocked && 'pointer-events-none opacity-50',
+            )}
+            onClick={() => fileRef.current?.click()}
+            onDragOver={(event) => { event.preventDefault(); if (!fileLocked) setDragging(true) }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(event) => {
+              event.preventDefault()
+              setDragging(false)
+              if (fileLocked) return
+              const images = [...event.dataTransfer.files].filter((file) => file.type.startsWith('image/'))
+              if (images.length) update({ files: images })
+            }}
+          >
+            <Input ref={fileRef} id='photo-person-files' type='file' accept='image/*' multiple className='sr-only' disabled={fileLocked} onClick={(event) => event.stopPropagation()} onChange={(event) => update({ files: Array.from(event.target.files ?? []) })} />
+            <p>点击选择或拖放图片到此处</p>
+          </div>
           {files.length ? <p className='text-sm text-muted-foreground'>已选择 {files.length} 张：{files.slice(0, 5).map((file) => file.name).join('、')}{files.length > 5 ? '…' : ''}</p> : <p className='flex items-center gap-2 text-sm text-muted-foreground'><ImagePlus className='size-4' aria-hidden />尚未选择照片，请选择同一人的正脸及不同角度照片。</p>}
         </div>
         {person && <p className='text-sm'>当前人员：{person.name}。再次上传仅补录照片，不修改姓名或分组，不会重复创建人员。</p>}

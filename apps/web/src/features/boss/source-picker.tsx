@@ -15,6 +15,7 @@ const ALL_KINDS: SourceValue['kind'][] = ['camera', 'file', 'url']
 
 export function SourcePicker({ value, onChange, kinds = ALL_KINDS }: { value: SourceValue; onChange: (v: SourceValue) => void; kinds?: SourceValue['kind'][] }) {
   const id = useId()
+  const electron = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent)
   const { data: videos = [] } = useQuery({
     queryKey: ['videos'],
     enabled: kinds.includes('file'),
@@ -74,16 +75,15 @@ export function SourcePicker({ value, onChange, kinds = ALL_KINDS }: { value: So
                 <SelectValue placeholder={cams.isLoading ? '正在枚举设备…' : '选择摄像头'} />
               </SelectTrigger>
               <SelectContent>
-                {cams.data?.push.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-                {cams.data?.devices.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}（服务端 OpenCV · {c.path}）{c.busy ? ` · 正被「${c.busy}」使用` : ''}
-                  </SelectItem>
-                ))}
+                {electron
+                  ? cams.data?.push.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>本机摄像头</SelectItem>
+                  ))
+                  : cams.data?.devices.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}{c.busy ? ` · 正被「${c.busy}」使用` : ''}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
             <Button variant='outline' size='icon' aria-label='重新枚举摄像头' title='重新枚举' onClick={() => cams.refetch()}>
@@ -91,8 +91,8 @@ export function SourcePicker({ value, onChange, kinds = ALL_KINDS }: { value: So
             </Button>
           </div>
         )}
-        {value.kind === 'camera' && cams.data && cams.data.devices.length === 0 && (
-          <span className='text-xs text-muted-foreground'>服务端未发现本地摄像头设备；可用「桌面端摄像头」（需在识务桌面端中运行）。</span>
+        {value.kind === 'camera' && cams.data && (electron ? cams.data.push : cams.data.devices).length === 0 && (
+          <span className='text-xs text-muted-foreground'>{electron ? '未发现本机摄像头' : '未发现摄像头设备'}</span>
         )}
       </div>
     </div>

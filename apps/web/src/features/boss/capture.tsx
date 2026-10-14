@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Camera, Folder, Merge, Radio, Split, UserRound, Users, Video } from 'lucide-react'
 import { toast } from 'sonner'
@@ -22,6 +22,9 @@ const STATUS: Record<string, string> = {
   cancelled: '已取消',
 }
 
+type PipelineStatus = { pipelines: { running: boolean; source: { kind: string; uri: string } }[] }
+const sourceName = (uri: string) => (uri.startsWith('push://') ? '本机摄像头' : uri.split('/').pop() || uri)
+
 export function CaptureWorkspace({ mode }: { mode: 'file' | 'live' }) {
   const qc = useQueryClient()
   const kinds: SourceValue['kind'][] = mode === 'file' ? ['file'] : ['camera', 'url']
@@ -29,6 +32,20 @@ export function CaptureWorkspace({ mode }: { mode: 'file' | 'live' }) {
   const [duration, setDuration] = useState(15)
   const [sid, setSid] = useState<string | null>(null)
   const [selected, setSelected] = useState<number[]>([])
+  const filledCam = useRef(false)
+
+  const { data: pipelines } = useQuery({
+    queryKey: ['pipeline'],
+    enabled: mode === 'live',
+    queryFn: async () => (await api.get<PipelineStatus>('/pipeline/status')).data ?? { pipelines: [] },
+  })
+  useEffect(() => {
+    if (mode !== 'live' || filledCam.current || src.kind !== 'camera' || src.uri) return
+    const cam = pipelines?.pipelines?.find((p) => p.running && p.source.kind === 'camera')
+    if (!cam?.source.uri) return
+    filledCam.current = true
+    setSrc({ kind: 'camera', uri: cam.source.uri })
+  }, [mode, pipelines, src.kind, src.uri])
 
   const { data: list = [] } = useQuery({
     queryKey: ['captures'],
@@ -66,6 +83,15 @@ export function CaptureWorkspace({ mode }: { mode: 'file' | 'live' }) {
     },
     onError: (e) => toast.error(errMsg(e)),
   })
+  const cancel = useMutation({
+    mutationFn: async () => (await api.delete(`/captures/${current}`)).data,
+    onSuccess: () => {
+      setSid(null)
+      qc.removeQueries({ queryKey: ['capture', current] })
+      qc.invalidateQueries({ queryKey: ['captures'] })
+    },
+    onError: (e) => toast.error(errMsg(e)),
+  })
   const merge = useMutation({
     mutationFn: async () => (await api.post(`/captures/${current}/merge`, { cluster_ids: selected })).data,
     onSuccess: () => {
@@ -77,7 +103,8 @@ export function CaptureWorkspace({ mode }: { mode: 'file' | 'live' }) {
   })
 
   const pending = cap?.clusters.filter((c) => c.status === 'pending').length ?? 0
-  const busy = start.isPending || !!cap && ['created', 'recording', 'clustering'].includes(cap.status)
+  const inFlight = !!cap && ['created', 'recording', 'clustering'].includes(cap.status)
+  const busy = start.isPending || inFlight
   const validDuration = Number.isFinite(duration) && duration >= 3 && duration <= 120
   return (
     <>
@@ -95,9 +122,16 @@ export function CaptureWorkspace({ mode }: { mode: 'file' | 'live' }) {
             <Label htmlFor={`capture-duration-${mode}`}>{mode === 'file' ? '分析时长（秒）' : '录制时长（秒）'}</Label>
             <Input id={`capture-duration-${mode}`} type='number' min={3} max={120} value={duration} onChange={(e) => setDuration(+e.target.value)} />
           </div>
-          <Button disabled={!src.uri.trim() || !kinds.includes(src.kind) || !validDuration || busy} onClick={() => start.mutate()}>
-            <Radio /> {mode === 'file' ? '开始分析' : '开始采集'}
-          </Button>
+          <div className='flex flex-wrap gap-2'>
+            <Button disabled={!src.uri.trim() || !kinds.includes(src.kind) || !validDuration || busy} onClick={() => start.mutate()}>
+              <Radio /> {mode === 'file' ? '开始分析' : '开始采集'}
+            </Button>
+            {inFlight && (
+              <Button variant='outline' disabled={cancel.isPending} onClick={() => cancel.mutate()}>
+                取消采集
+              </Button>
+            )}
+          </div>
         </CardContent>
         {sessions.length > 1 && (
           <CardContent className='grid gap-1.5'>
@@ -107,7 +141,7 @@ export function CaptureWorkspace({ mode }: { mode: 'file' | 'live' }) {
               <SelectContent>
                 {sessions.map((session) => (
                   <SelectItem key={session.id} value={session.id}>
-                    {session.source.uri.split('/').pop()} · {STATUS[session.status] ?? session.status} · {session.id}
+                    {sourceName(session.source.uri)} · {STATUS[session.status] ?? session.status} · {session.id}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -117,8 +151,15 @@ export function CaptureWorkspace({ mode }: { mode: 'file' | 'live' }) {
         {cap && (
           <CardFooter className='flex flex-wrap gap-3 text-sm text-muted-foreground'>
             <Badge variant={cap.status === 'error' ? 'destructive' : 'secondary'}>{STATUS[cap.status] ?? cap.status}</Badge>
-            {cap.status === 'recording' && <span>进度 {Math.round(cap.progress * 100)}%</span>}
-            <span>{cap.source.uri.split('/').pop()}</span>
+            {cap.status === 'recording' && (
+              <span className='flex items-center gap-2'>
+                <span className='h-2 w-32 overflow-hidden rounded-full bg-muted' aria-hidden>
+                  <span className='block h-full bg-primary' style={{ width: `${Math.round(cap.progress * 100)}%` }} />
+                </span>
+                <span>进度 {Math.round(cap.progress * 100)}%</span>
+              </span>
+            )}
+            <span>{sourceName(cap.source.uri)}</span>
             {cap.stats.samples != null && (
               <span>
                 人脸样本 {cap.stats.samples} · 候选人物 {cap.clusters.length} · 噪声 {cap.noise_count}

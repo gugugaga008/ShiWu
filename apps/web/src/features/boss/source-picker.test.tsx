@@ -6,7 +6,11 @@ import { SourcePicker, type SourceValue } from './source-picker'
 
 const requests = vi.hoisted(() => ({ get: vi.fn() }))
 vi.mock('@/lib/api', async (original) => ({ ...(await original<typeof import('@/lib/api')>()), api: requests }))
+const originalUA = window.navigator.userAgent
 const clients: QueryClient[] = []
+function setUA(ua: string) {
+  Object.defineProperty(window.navigator, 'userAgent', { configurable: true, value: ua })
+}
 function Picker({ kinds, initial }: { kinds: SourceValue['kind'][]; initial: SourceValue }) {
   const [value, setValue] = useState(initial)
   return <SourcePicker kinds={kinds} value={value} onChange={setValue} />
@@ -20,6 +24,7 @@ beforeEach(() => {
   requests.get.mockImplementation((path: string) => Promise.resolve({ data: path === '/sources/videos' ? [] : { devices: [], push: [] } }))
 })
 afterEach(async () => {
+  setUA(originalUA)
   await cleanup()
   clients.splice(0).forEach((qc) => qc.clear())
   vi.resetAllMocks()
@@ -53,5 +58,31 @@ describe('添加模式限制画面源类型', () => {
       expect(icon.getAttribute('stroke')).toBe('currentColor')
       expect(icon.getAttribute('fill')).toBe('none')
     }
+  })
+
+  it('Electron 只列出本机摄像头，不展示 OpenCV 或路径', async () => {
+    setUA('Mozilla/5.0 Electron/28.0.0')
+    requests.get.mockResolvedValue({ data: {
+      devices: [{ id: '0', name: 'FaceTime HD', path: '0' }],
+      push: [{ id: 'push://electron', name: 'getUserMedia Camera' }],
+    } })
+    const screen = await setup(['camera'], { kind: 'camera', uri: '' })
+    await screen.getByRole('combobox', { name: '摄像头设备' }).click()
+    await expect.element(screen.getByRole('option', { name: '本机摄像头' })).toBeVisible()
+    expect(document.querySelectorAll('[role="option"]')).toHaveLength(1)
+    expect(document.body.textContent).not.toMatch(/OpenCV|getUserMedia|路径/)
+  })
+
+  it('浏览器只列出设备名称，忙提示保留', async () => {
+    setUA('Mozilla/5.0 Chrome/120.0.0.0')
+    requests.get.mockResolvedValue({ data: {
+      devices: [{ id: '0', name: 'FaceTime HD', path: '0', busy: '门口' }],
+      push: [{ id: 'push://electron', name: 'getUserMedia Camera' }],
+    } })
+    const screen = await setup(['camera'], { kind: 'camera', uri: '' })
+    await screen.getByRole('combobox', { name: '摄像头设备' }).click()
+    await expect.element(screen.getByRole('option', { name: 'FaceTime HD · 正被「门口」使用' })).toBeVisible()
+    expect(document.querySelectorAll('[role="option"]')).toHaveLength(1)
+    expect(document.body.textContent).not.toMatch(/OpenCV|本机摄像头|getUserMedia/)
   })
 })

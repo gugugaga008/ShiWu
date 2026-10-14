@@ -49,7 +49,7 @@ describe('规则设置单列与行为回归', () => {
   it.each([1440, 390])('在 %i px 下规则卡片及全部表单网格均为单列', async (width) => {
     await page.viewport(width, 900)
     await renderRules([rule(), rule({ id: 'stranger', role: null, stranger: true, priority: 5 })])
-    const cards = [...document.querySelectorAll<HTMLElement>('[data-slot="card"]')].slice(1)
+    const cards = [...document.querySelectorAll<HTMLElement>('[data-slot="card"]')]
     expect(cards).toHaveLength(2)
     const first = cards[0].getBoundingClientRect()
     const second = cards[1].getBoundingClientRect()
@@ -72,17 +72,17 @@ describe('规则设置单列与行为回归', () => {
     await screen.getByRole('combobox').all()[1].click()
     await screen.getByRole('option', { name: '领导', exact: true }).click()
     await fillField('优先级', '42')
-    await fillField('连续确认帧数', '4')
+    await fillField('连续出现（秒）', '4')
     await fillField('冷却（秒）', '90')
+    await screen.getByRole('radio', { name: '最小人脸宽度' }).click()
     await fillField('最小人脸宽度（px）', '100')
-    await fillField('最小占画面宽度（%）', '25')
     await fillField('备注', '编辑后的分组')
     await screen.getByRole('button', { name: '门口', exact: true }).click()
     await screen.getByPlaceholder('通知标题（默认：老板来了！）').fill('新提醒')
     await screen.getByRole('checkbox', { name: '提示音', exact: true }).click()
     await screen.getByRole('button', { name: '保存规则', exact: true }).click()
     await expect.poll(() => requests.put.mock.calls[0]).toEqual(['/rules', [rule({
-      role: 'leader', priority: 42, min_frames: 4, cooldown_s: 90, min_face_px: 100, min_face_ratio: 0.25,
+      role: 'leader', priority: 42, min_confirm_s: 4, cooldown_s: 90, min_face_mode: 'px', min_face_px: 100, min_face_ratio: 0,
       sources: ['门口'], note: '编辑后的分组',
       actions: [{ type: 'notify', params: { title: '新提醒' } }, { type: 'sound', params: {} }],
     })]])
@@ -119,12 +119,10 @@ describe('规则设置单列与行为回归', () => {
     expect(requests.put.mock.calls[0][1][0].actions).toContainEqual({ type: 'command', params: { cmd: 'echo test' } })
   })
 
-  it('测试动作、监控暂停和删除仍作用于对应规则', async () => {
+  it('测试动作和删除仍作用于对应规则', async () => {
     const screen = await renderRules()
     await screen.getByRole('button', { name: '测试动作', exact: true }).click()
     await expect.poll(() => requests.post.mock.calls[0]).toEqual(['/monitor/test', { rule_id: 'boss', role: 'boss', name: '测试' }])
-    await screen.getByRole('button', { name: '暂停监控', exact: true }).click()
-    await expect.poll(() => requests.post.mock.calls[1]).toEqual(['/monitor/pause'])
     await screen.getByRole('button', { name: '删除', exact: true }).click()
     await expect.element(screen.getByText('识别到老板', { exact: true })).not.toBeInTheDocument()
     await screen.getByRole('button', { name: '保存规则', exact: true }).click()

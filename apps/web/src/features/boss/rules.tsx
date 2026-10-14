@@ -1,14 +1,15 @@
 import { type ReactNode, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Activity, Clock3, Filter, FlaskConical, MonitorPlay, Pause, Play, Plus, Save, Trash2, UserRound, Users, Zap, type LucideIcon } from 'lucide-react'
+import { Clock3, Filter, FlaskConical, MonitorPlay, Plus, Save, Trash2, UserRound, Users, Zap, type LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -30,10 +31,12 @@ export type Rule = {
   schedule: TimeWindow[]
   min_face_px: number
   min_face_ratio: number
+  min_face_mode?: '' | 'px' | 'ratio'
   restore_on_leave: boolean
   leave_after_s: number
   enabled: boolean
   min_frames: number
+  min_confirm_s?: number
   cooldown_s: number
   actions: Action[]
   note?: string | null
@@ -43,14 +46,13 @@ const WD = ['一', '二', '三', '四', '五', '六', '日']
 const ROLE_OPTIONS = ['boss', 'leader', 'staff', 'whitelist', 'ignore']
 const blank = (over: Partial<Rule>): Rule => ({
   id: `r${Date.now().toString(36)}`, role: null, person_ids: [], stranger: false, stranger_after_s: 5, whitelist: false,
-  suppress_others: false, priority: 10, sources: [], schedule: [], min_face_px: 0, min_face_ratio: 0,
-  restore_on_leave: false, leave_after_s: 15, enabled: true, min_frames: 3, cooldown_s: 60, actions: [{ type: 'notify', params: {} }],
+  suppress_others: false, priority: 10, sources: [], schedule: [], min_face_px: 0, min_face_ratio: 0, min_face_mode: '',
+  restore_on_leave: false, leave_after_s: 15, enabled: true, min_frames: 3, min_confirm_s: 0.5, cooldown_s: 60, actions: [{ type: 'notify', params: {} }],
   note: '', ...over,
 })
 const kindOf = (r: Rule) => (r.whitelist ? 'whitelist' : r.stranger ? 'stranger' : r.person_ids.length ? 'person' : 'role')
 const KIND_LABEL: Record<string, string> = { whitelist: '白名单', stranger: '陌生人', person: '人员', role: '分组' }
 type RulesResp = { rules: Rule[]; actions: { value: string; label: string }[] }
-type Monitor = { paused: boolean; fired: number; suppressed?: number; pipeline_running: boolean }
 
 const ACTION_HINT: Record<string, string> = {
   notify: '桌面通知（Linux 无通知服务时用应用浮窗）',
@@ -170,6 +172,7 @@ function RuleCard({ r, types, people, sources, onChange, onDelete }: {
     kind === 'person' ? people.filter((p) => r.person_ids.includes(p.person_id)).map((p) => p.name).join('、') || '（未选择人员）' :
     `识别到${ROLE_LABEL[r.role ?? ''] ?? r.role ?? '?'}`
   const allSources = Array.from(new Set([...sources, ...r.sources]))
+  const faceMode = r.min_face_mode ?? (r.min_face_px > 0 ? 'px' : r.min_face_ratio > 0 ? 'ratio' : '')
   return (
     <Card className={r.enabled ? '' : 'opacity-70'}>
       <CardHeader className='flex flex-row items-center justify-between space-y-0'>
@@ -204,11 +207,11 @@ function RuleCard({ r, types, people, sources, onChange, onDelete }: {
               <Input type='number' min={0} value={r.stranger_after_s} onChange={(e) => onChange({ ...r, stranger_after_s: +e.target.value })} />
             </Field>
           )}
-          <Field label='优先级'>
+          <Field label='优先级' hint='数字越大越先匹配，同一张脸只走第一条'>
             <Input type='number' value={r.priority} onChange={(e) => onChange({ ...r, priority: +e.target.value })} />
           </Field>
-          <Field label='连续确认帧数'>
-            <Input type='number' min={1} max={100} value={r.min_frames} onChange={(e) => onChange({ ...r, min_frames: +e.target.value })} />
+          <Field label='连续出现（秒）'>
+            <Input type='number' min={0} step={0.1} value={r.min_confirm_s ?? 0.5} onChange={(e) => onChange({ ...r, min_confirm_s: +e.target.value })} />
           </Field>
           {kind !== 'whitelist' && (
             <Field label='冷却（秒）'>
@@ -234,7 +237,7 @@ function RuleCard({ r, types, people, sources, onChange, onDelete }: {
           </Field>
         )}
         <div className='grid gap-3 rounded-md border p-3'>
-          <span className='flex items-center gap-2 text-sm font-medium'><Filter className='size-4' aria-hidden />条件 <span className='text-xs font-normal text-muted-foreground'>（全部满足才匹配；不设置即不限）</span></span>
+          <span className='flex items-center gap-2 text-sm font-medium'><Filter className='size-4' aria-hidden />条件 <Badge variant='outline' className='text-[10px]'>并且</Badge></span>
           <Field label='画面源' icon={MonitorPlay}>
             <div className='flex flex-wrap gap-1.5'>
               {allSources.map((n) => {
@@ -252,13 +255,36 @@ function RuleCard({ r, types, people, sources, onChange, onDelete }: {
           <Field label='时间段（星期 + 时间窗）' icon={Clock3}>
             <ScheduleEditor value={r.schedule} onChange={(schedule) => onChange({ ...r, schedule })} />
           </Field>
-          <div className='grid grid-cols-1 gap-3'>
-            <Field label='最小人脸宽度（px）' hint='越大 = 越近才触发'>
-              <Input type='number' min={0} value={r.min_face_px} onChange={(e) => onChange({ ...r, min_face_px: +e.target.value })} />
+          <div className='grid gap-3'>
+            <Field label='人脸大小'>
+              <RadioGroup
+                className='flex flex-wrap gap-3'
+                value={faceMode || 'none'}
+                onValueChange={(v) => {
+                  const min_face_mode = (v === 'none' ? '' : v) as '' | 'px' | 'ratio'
+                  onChange({
+                    ...r,
+                    min_face_mode,
+                    min_face_px: min_face_mode === 'px' ? r.min_face_px : 0,
+                    min_face_ratio: min_face_mode === 'ratio' ? r.min_face_ratio : 0,
+                  })
+                }}
+              >
+                <label className='flex items-center gap-1.5 text-sm'><RadioGroupItem value='none' aria-label='不限制' />不限制</label>
+                <label className='flex items-center gap-1.5 text-sm'><RadioGroupItem value='px' aria-label='最小人脸宽度' />最小人脸宽度</label>
+                <label className='flex items-center gap-1.5 text-sm'><RadioGroupItem value='ratio' aria-label='最小占画面宽度' />最小占画面宽度</label>
+              </RadioGroup>
             </Field>
-            <Field label='最小占画面宽度（%）'>
-              <Input type='number' min={0} max={100} step={1} value={Math.round(r.min_face_ratio * 1000) / 10} onChange={(e) => onChange({ ...r, min_face_ratio: +e.target.value / 100 })} />
-            </Field>
+            {faceMode === 'px' && (
+              <Field label='最小人脸宽度（px）' hint='越大 = 越近才触发'>
+                <Input type='number' min={0} value={r.min_face_px} onChange={(e) => onChange({ ...r, min_face_px: +e.target.value })} />
+              </Field>
+            )}
+            {faceMode === 'ratio' && (
+              <Field label='最小占画面宽度（%）'>
+                <Input type='number' min={0} max={100} step={1} value={Math.round(r.min_face_ratio * 1000) / 10} onChange={(e) => onChange({ ...r, min_face_ratio: +e.target.value / 100 })} />
+              </Field>
+            )}
           </div>
         </div>
         {kind === 'whitelist' ? (
@@ -266,7 +292,7 @@ function RuleCard({ r, types, people, sources, onChange, onDelete }: {
             <Switch checked={r.suppress_others} onCheckedChange={(suppress_others) => onChange({ ...r, suppress_others })} />
             <span>
               同时抑制其他规则
-              <span className='block text-xs text-muted-foreground'>白名单人员在画面中时，同一画面源里其他人也不触发（例如陪同客户时）</span>
+              <span className='block text-xs text-muted-foreground'>白名单的人出现时，同一画面源上其他人的规则先不响（例如有人陪客户过来）</span>
             </span>
           </label>
         ) : (
@@ -321,7 +347,6 @@ function RuleCard({ r, types, people, sources, onChange, onDelete }: {
 export function Rules() {
   const qc = useQueryClient()
   const { data } = useQuery({ queryKey: ['rules'], queryFn: async () => (await api.get<RulesResp>('/rules')).data })
-  const { data: mon } = useQuery({ queryKey: ['monitor'], queryFn: async () => (await api.get<Monitor>('/monitor')).data, refetchInterval: 3000 })
   const { data: people = [] } = useQuery({ queryKey: ['people'], queryFn: async () => (await api.get<PersonLite[]>('/people')).data })
   const { data: sources = [] } = useQuery({ queryKey: ['source-names'], queryFn: async () => (await api.get<string[]>('/sources/names')).data })
   const [rules, setRules] = useState<Rule[]>([])
@@ -348,45 +373,28 @@ export function Rules() {
     },
     onError: (e) => toast.error(errMsg(e)),
   })
-  const toggle = useMutation({
-    mutationFn: async () => (await api.post(`/monitor/${mon?.paused ? 'resume' : 'pause'}`)).data,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['monitor'] }),
-  })
   return (
     <Page title='规则设置' desc='分组 / 人员 / 陌生人 / 白名单规则并存；按优先级从高到低，每张脸只匹配第一条满足条件的规则'>
-      <Card className='mb-4'>
-        <CardHeader className='flex flex-row items-center justify-between space-y-0'>
-          <div>
-            <CardTitle className='flex items-center gap-2'><Activity className='size-4' aria-hidden />监控状态：{mon?.paused ? '已暂停' : '监控中'}</CardTitle>
-            <CardDescription>
-              已触发 {mon?.fired ?? 0} 次 · 白名单抑制 {mon?.suppressed ?? 0} 次 · 托盘菜单或 Ctrl+Alt+P 也可暂停/恢复
-            </CardDescription>
-          </div>
-          <div className='flex gap-2'>
-            <Button variant={mon?.paused ? 'default' : 'outline'} onClick={() => toggle.mutate()}>
-              {mon?.paused ? <Play /> : <Pause />} {mon?.paused ? '恢复监控' : '暂停监控'}
-            </Button>
-            <Select value='' onValueChange={(k) => setRules((rs) => [...rs, blank(
-              k === 'person' ? { person_ids: people[0] ? [people[0].person_id] : [], priority: 50, note: '人员规则' } :
-              k === 'stranger' ? { stranger: true, priority: 5, stranger_after_s: 5, note: '陌生人' } :
-              k === 'whitelist' ? { whitelist: true, role: 'whitelist', priority: 100, min_frames: 1, actions: [], note: '白名单' } :
-              { role: 'boss', note: '分组规则' })])}>
-              <SelectTrigger className='w-36'>
-                <Plus /> <span>新增规则</span>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='person'>人员规则</SelectItem>
-                <SelectItem value='role'>分组规则</SelectItem>
-                <SelectItem value='stranger'>陌生人规则</SelectItem>
-                <SelectItem value='whitelist'>白名单规则</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button onClick={trySave}>
-              <Save /> 保存规则
-            </Button>
-          </div>
-        </CardHeader>
-      </Card>
+      <div className='mb-4 flex flex-wrap gap-2'>
+        <Select value='' onValueChange={(k) => setRules((rs) => [...rs, blank(
+          k === 'person' ? { person_ids: people[0] ? [people[0].person_id] : [], priority: 50, note: '人员规则' } :
+          k === 'stranger' ? { stranger: true, priority: 5, stranger_after_s: 5, note: '陌生人' } :
+          k === 'whitelist' ? { whitelist: true, role: 'whitelist', priority: 100, min_frames: 1, actions: [], note: '白名单' } :
+          { role: 'boss', note: '分组规则' })])}>
+          <SelectTrigger className='w-36'>
+            <Plus /> <span>新增规则</span>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='person'>人员规则</SelectItem>
+            <SelectItem value='role'>分组规则</SelectItem>
+            <SelectItem value='stranger'>陌生人规则</SelectItem>
+            <SelectItem value='whitelist'>白名单规则</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button onClick={trySave}>
+          <Save /> 保存规则
+        </Button>
+      </div>
       <ConfirmDialog
         open={!!confirmCmd}
         onOpenChange={(o) => !o && setConfirmCmd(null)}

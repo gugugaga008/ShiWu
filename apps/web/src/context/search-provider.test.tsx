@@ -198,9 +198,9 @@ describe('SearchProvider and CommandMenu', () => {
 
     await openCommandPalette(screen)
 
-    await userEvent.click(screen.getByText('画面源'))
+    await userEvent.click(screen.getByText('概览'))
 
-    expect(mocks.navigate).toHaveBeenCalledWith({ to: '/sources' })
+    expect(mocks.navigate).toHaveBeenCalledWith({ to: '/' })
     await expect
       .element(screen.getByPlaceholder(COMMAND_MENU_PLACEHOLDER))
       .not.toBeInTheDocument()

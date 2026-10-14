@@ -15,15 +15,24 @@ type PreviewSession = {
   address: string
 }
 
-export function MobilePreview({ source, disabled }: { source: string; disabled?: boolean }) {
+const TTL_OPTIONS = [
+  { label: '5 分钟', value: 300 },
+  { label: '10 分钟', value: 600 },
+  { label: '30 分钟', value: 1800 },
+] as const
+
+export function MobilePreview({ source, disabled, autoOpen }: { source: string; disabled?: boolean; autoOpen?: boolean }) {
   const qc = useQueryClient()
   const [open, setOpen] = useState(false)
   const [session, setSession] = useState<PreviewSession>()
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [disconnected, setDisconnected] = useState(false)
+  const [ttl, setTtl] = useState(600)
   const [now, setNow] = useState(() => Date.now())
   const pending = useRef(false)
+  const ttlRef = useRef(ttl)
+  ttlRef.current = ttl
 
   useEffect(() => {
     if (!open) return
@@ -45,8 +54,9 @@ export function MobilePreview({ source, disabled }: { source: string; disabled?:
         retry: false,
         queryFn: async () => {
           const { data: sessions } = await api.get<PreviewSession[]>('/mobile-preview')
-          const existing = sessions.find((s) => s.source === source && s.expires_at * 1000 > Date.now())
-          return existing ?? (await api.post<PreviewSession>('/mobile-preview', { source })).data
+          const list = Array.isArray(sessions) ? sessions : []
+          const existing = list.find((s) => s.source === source && s.expires_at * 1000 > Date.now())
+          return existing ?? (await api.post<PreviewSession>('/mobile-preview', { source, ttl_s: ttlRef.current })).data
         },
       })
       setSession(result)
@@ -69,7 +79,28 @@ export function MobilePreview({ source, disabled }: { source: string; disabled?:
       setDisconnected(true)
       setError('')
     } catch {
-      toast.error('断开预览失败；请重试，或停止该画面源。链接最迟在 10 分钟后失效。')
+      toast.error(`断开预览失败；请重试，或停止该画面源。链接最迟在 ${ttlRef.current / 60} 分钟后失效。`)
+    } finally {
+      pending.current = false
+      setBusy(false)
+    }
+  }
+
+  async function refreshQr() {
+    if (pending.current) return
+    pending.current = true
+    setBusy(true)
+    setError('')
+    setDisconnected(false)
+    try {
+      await api.delete('/mobile-preview', { params: { source } })
+      setSession(undefined)
+      const result = (await api.post<PreviewSession>('/mobile-preview', { source, ttl_s: ttlRef.current })).data
+      qc.setQueryData(['mobile-preview-session', source], result)
+      setSession(result)
+      setNow(Date.now())
+    } catch (e) {
+      setError(errMsg(e))
     } finally {
       pending.current = false
       setBusy(false)
@@ -85,7 +116,7 @@ export function MobilePreview({ source, disabled }: { source: string; disabled?:
       // 同源多标签页可能生成多份二维码；切换网卡前一并撤销，失败则保留原会话。
       await api.delete('/mobile-preview', { params: { source } })
       setSession(undefined)
-      setSession((await api.post<PreviewSession>('/mobile-preview', { source, address })).data)
+      setSession((await api.post<PreviewSession>('/mobile-preview', { source, address, ttl_s: ttlRef.current })).data)
       setNow(Date.now())
     } catch (e) {
       setError(errMsg(e))
@@ -100,7 +131,14 @@ export function MobilePreview({ source, disabled }: { source: string; disabled?:
     if (value) void load()
   }
 
+  useEffect(() => {
+    if (autoOpen && !disabled) changeOpen(true)
+    // 仅在 autoOpen 变为 true 时打开；关闭后不自动再开。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpen, disabled, source])
+
   const expired = !!session && now >= session.expires_at * 1000
+  const ttlLabel = `${ttl / 60} 分钟`
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
       <Button variant='outline' disabled={disabled} onClick={() => changeOpen(true)}>
@@ -114,13 +152,20 @@ export function MobilePreview({ source, disabled }: { source: string; disabled?:
           </DialogDescription>
         </DialogHeader>
         <div className='grid justify-items-center gap-4'>
+          <div className='flex flex-wrap justify-center gap-1' role='group' aria-label='链接时长'>
+            {TTL_OPTIONS.map((o) => (
+              <Button key={o.value} type='button' size='sm' variant={ttl === o.value ? 'default' : 'outline'} onClick={() => setTtl(o.value)}>
+                {o.label}
+              </Button>
+            ))}
+          </div>
           {busy && <p role='status'>正在准备手机预览…</p>}
           {error && <p role='alert' className='text-sm text-destructive'>{error}</p>}
-          {disabled ? <p role='status'>画面源已结束，手机预览已失效。</p> : session && !expired && !busy && (
+          {disabled ? <p role='status'>画面源已结束，手机预览已失效。</p> : session?.qr && !expired && !busy && (
             <>
               <img src={session.qr} alt='手机预览二维码' className='size-64 max-w-full rounded bg-white p-2' />
               <p className='text-sm text-muted-foreground'>有效期至 {new Date(session.expires_at * 1000).toLocaleTimeString('zh-CN', { hour12: false })}</p>
-              {session.addresses.length > 1 && (
+              {(session.addresses?.length ?? 0) > 1 && (
                 <label className='grid w-full gap-1 text-sm'>
                   手机无法连接时切换电脑网卡（旧连接将断开）
                   <select className='rounded-md border bg-background p-2' value={session.address} onChange={(e) => void changeAddress(e.target.value)}>
@@ -133,11 +178,10 @@ export function MobilePreview({ source, disabled }: { source: string; disabled?:
           {!disabled && expired && <p role='status'>二维码已过期，请重新生成。</p>}
           {disconnected && <p role='status'>手机预览已断开。</p>}
           <div className='flex flex-wrap justify-center gap-2'>
-            {!disabled && (error || expired || disconnected) && <Button variant='outline' disabled={busy} onClick={() => void load()}>重新生成二维码</Button>}
-            {session && <Button variant='destructive' disabled={busy} onClick={() => void disconnect()}>断开手机预览</Button>}
-            <Button variant='outline' onClick={() => setOpen(false)}>隐藏二维码</Button>
+            {!disabled && <Button variant='outline' disabled={busy} onClick={() => void refreshQr()}>刷新二维码</Button>}
+            {session?.id && <Button variant='destructive' disabled={busy} onClick={() => void disconnect()}>断开手机预览</Button>}
           </div>
-          <p className='text-xs text-muted-foreground'>链接最长有效 10 分钟，不会因重开弹窗而续期。主动断开会结束该路所有手机连接；到期、停止或替换画面源后也会失效。不要分享二维码，仅在可信局域网使用；连接失败请检查防火墙和 Wi-Fi 设备隔离。</p>
+          <p className='text-xs text-muted-foreground'>链接有效 {ttlLabel}，不会因重开弹窗而续期。主动断开会结束该路所有手机连接；到期、停止或替换画面源后也会失效。不要分享二维码，仅在可信局域网使用；连接失败请检查防火墙和 Wi-Fi 设备隔离。</p>
         </div>
       </DialogContent>
     </Dialog>

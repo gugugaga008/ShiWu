@@ -279,6 +279,18 @@ describe('照片添加人员', () => {
     expect(requests.post.mock.calls.map(([url]) => url)).toEqual(['/people', '/people/created-before-disconnect/photos', '/people'])
   })
 
+  it('支持拖放图片到选择区', async () => {
+    const screen = await render(form(client()))
+    const input = document.querySelector('#photo-person-files')!
+    const zone = input.parentElement!
+    const dt = new DataTransfer()
+    dt.items.add(new File(['test-photo'], 'drop.jpg', { type: 'image/jpeg' }))
+    zone.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }))
+    await expect.poll(() => zone.className.includes('border-primary')).toBe(true)
+    zone.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }))
+    await expect.element(screen.getByText(/已选择 1 张：drop.jpg/)).toBeVisible()
+  })
+
   it('创建响应不明时不自动重发创建，避免重试导致重复人员', async () => {
     requests.post.mockRejectedValue(new Error('connection lost'))
     const screen = await render(form(client()))

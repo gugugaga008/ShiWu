@@ -94,8 +94,9 @@ export function Timeline() {
                             <img src={snap(it.snapshot_url)} alt='快照' loading='lazy' className='h-20 w-36 object-cover transition hover:scale-105' />
                           </button>
                         ) : (
-                          <div className='flex h-20 w-36 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground'>
+                          <div className='flex h-20 w-36 shrink-0 flex-col items-center justify-center gap-1 rounded-md bg-muted text-muted-foreground'>
                             <ImageOff className='size-5' />
+                            <span className='text-xs'>无快照</span>
                           </div>
                         )
                       ) : (
