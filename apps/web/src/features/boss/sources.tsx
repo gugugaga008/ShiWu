@@ -1,21 +1,16 @@
-import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, RotateCw, Square } from 'lucide-react'
+import { Activity, MonitorPlay, RotateCw, Settings2, Square } from 'lucide-react'
+import { useSettingsDialog } from '@/hooks/use-settings-dialog'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
 import { api, errMsg, ROLE_LABEL, ROLE_VARIANT } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { EventsTable } from './events-table'
 import { type LiveFace, useLive } from './live'
 import { MobilePreview } from './mobile-preview'
 import { Page } from './page'
-import { SourcePicker, type SourceValue } from './source-picker'
 
 type PItem = {
   name: string
@@ -47,10 +42,6 @@ function FaceBadges({ faces }: { faces: LiveFace[] }) {
 
 export function Sources() {
   const qc = useQueryClient()
-  const [name, setName] = useState('门口')
-  const [src, setSrc] = useState<SourceValue>({ kind: 'file', uri: '' })
-  const [loop, setLoop] = useState(true)
-  const [res, setRes] = useState('1280x720')
   const { events, connected } = useLive()
   const { data: st } = useQuery({
     queryKey: ['pipeline'],
@@ -58,37 +49,30 @@ export function Sources() {
     refetchInterval: 1500,
   })
   const refresh = () => qc.invalidateQueries({ queryKey: ['pipeline'] })
-  const start = useMutation({
-    mutationFn: async () => {
-      const [width, height] = res.split('x').map(Number)
-      return (await api.post('/pipeline/start', { ...src, loop, width, height, name: name.trim() || '主画面' })).data
-    },
-    onSuccess: () => {
-      toast.success(`「${name}」已启动`)
-      refresh()
-    },
-    onError: (e) => toast.error(errMsg(e)),
-  })
   const stop = useMutation({
     mutationFn: async (n?: string) => (await api.post('/pipeline/stop', null, { params: n ? { name: n } : {} })).data,
     onSuccess: refresh,
+    onError: (e) => toast.error(errMsg(e)),
   })
   const restart = useMutation({
     mutationFn: async (n: string) => (await api.post('/pipeline/restart', null, { params: { name: n } })).data,
     onSuccess: refresh,
+    onError: (e) => toast.error(errMsg(e)),
   })
   const items = st?.pipelines ?? []
-  const exists = items.some((p) => p.name === name.trim())
   const shownEvents = events.filter((e) => e.type !== 'frame_result').slice(0, 12)
   return (
-    <Page title='视频源' desc='可同时监控多路视频源（摄像头 / 网络摄像头 / 文件），各自命名，规则可按源限定'>
-      <div className='grid gap-4 xl:grid-cols-[1fr_360px]'>
+    <Page title='画面源' desc='查看各路状态、识别结果与手机预览；添加画面源请前往设置'>
+      <div className='mb-4 flex justify-end'>
+        <Button variant='outline' onClick={() => useSettingsDialog.getState().openSection('sources')}><Settings2 aria-hidden />管理画面源</Button>
+      </div>
+      <div className='grid gap-4'>
         <Card>
           <CardHeader className='flex flex-row items-center justify-between'>
             <div>
-              <CardTitle>视频源状态 · 手机扫码预览</CardTitle>
+              <CardTitle className='flex items-center gap-2'><MonitorPlay className='size-5' aria-hidden />画面源状态 · 手机扫码预览</CardTitle>
               <CardDescription>
-                {items.length ? `运行中 ${items.filter((p) => p.running).length}/${items.length} 路 · 上限 ${st?.max_sources ?? 4} 路 · 共享一个识别引擎` : '没有运行中的视频源'}
+                {items.length ? `运行中 ${items.filter((p) => p.running).length}/${items.length} 路 · 上限 ${st?.max_sources ?? 4} 路 · 共享一个识别引擎` : '没有运行中的画面源'}
               </CardDescription>
             </div>
             <div className='flex items-center gap-2'>
@@ -102,8 +86,10 @@ export function Sources() {
           </CardHeader>
           <CardContent>
             {items.length === 0 ? (
-              <div className='flex aspect-video items-center justify-center rounded-md bg-muted text-sm text-muted-foreground'>
-                在右侧添加视频源后，通过手机扫码查看画面
+              <div className='grid min-h-60 justify-items-center content-center gap-3 rounded-md bg-muted/40 text-sm text-muted-foreground'>
+                <MonitorPlay className='size-10' aria-hidden />
+                <p>暂无画面源，先到设置添加并启动</p>
+                <Button variant='outline' onClick={() => useSettingsDialog.getState().openSection('sources')}><Settings2 aria-hidden />前往设置添加</Button>
               </div>
             ) : (
               <div className={cn('grid gap-3', items.length > 1 && 'md:grid-cols-2')}>
@@ -147,52 +133,10 @@ export function Sources() {
             )}
           </CardContent>
         </Card>
-        <Card className='content-start'>
-          <CardHeader>
-            <CardTitle>添加视频源</CardTitle>
-            <CardDescription>同名则替换；摄像头可用服务端直连设备或桌面端推流</CardDescription>
-          </CardHeader>
-          <CardContent className='grid gap-4'>
-            <div className='grid gap-1.5'>
-              <Label htmlFor='src-name'>名称</Label>
-              <Input id='src-name' value={name} maxLength={32} onChange={(e) => setName(e.target.value)} placeholder='如：门口、桌面' />
-              <div className='flex gap-1'>
-                {['门口', '桌面', '走廊'].map((n) => (
-                  <Button key={n} type='button' size='sm' variant='ghost' className='h-6 px-2 text-xs' onClick={() => setName(n)}>
-                    {n}
-                  </Button>
-                ))}
-              </div>
-            </div>
-            <SourcePicker value={src} onChange={setSrc} />
-            {src.kind === 'camera' && !src.uri.startsWith('push://') && (
-              <div className='grid gap-1.5'>
-                <Label>分辨率</Label>
-                <Select value={res} onValueChange={setRes}>
-                  <SelectTrigger className='w-full'>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='640x480'>640×480</SelectItem>
-                    <SelectItem value='1280x720'>1280×720（推荐）</SelectItem>
-                    <SelectItem value='1920x1080'>1920×1080</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            <div className='flex items-center gap-2'>
-              <Switch id='loop' checked={loop} onCheckedChange={setLoop} />
-              <Label htmlFor='loop'>文件循环播放</Label>
-            </div>
-            <Button disabled={!src.uri || start.isPending} onClick={() => start.mutate()}>
-              <Plus /> {exists ? `替换「${name}」` : `添加「${name || '主画面'}」并启动`}
-            </Button>
-          </CardContent>
-        </Card>
       </div>
       <Card className='mt-4'>
         <CardHeader>
-          <CardTitle>实时事件</CardTitle>
+          <CardTitle className='flex items-center gap-2'><Activity className='size-5' aria-hidden />实时事件</CardTitle>
         </CardHeader>
         <CardContent>
           <EventsTable events={shownEvents} />

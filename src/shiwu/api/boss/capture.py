@@ -1,4 +1,4 @@
-"""一键采集：录一段视频源 → 检测 + 追踪 + 特征 → DBSCAN 聚类 → 候选人物。"""
+"""视频 / 现场采集：读取画面源 → 检测 + 追踪 + 特征 → DBSCAN 聚类 → 候选人物。"""
 from __future__ import annotations
 
 import logging

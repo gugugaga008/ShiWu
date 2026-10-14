@@ -98,13 +98,14 @@ function SidebarMenuCollapsible({
   const { setOpenMobile } = useSidebar()
   return (
     <Collapsible
+      key={href.split('?')[0]}
       asChild
       defaultOpen={checkIsActive(href, item, true)}
       className='group/collapsible'
     >
       <SidebarMenuItem>
         <CollapsibleTrigger asChild>
-          <SidebarMenuButton tooltip={item.title}>
+          <SidebarMenuButton tooltip={item.title} isActive={checkIsActive(href, item, true)}>
             {item.icon && <item.icon />}
             <span>{item.title}</span>
             {item.badge && <NavBadge>{item.badge}</NavBadge>}
@@ -181,12 +182,11 @@ function SidebarMenuCollapsedDropdown({
 }
 
 function checkIsActive(href: string, item: NavItem, mainNav = false) {
-  return (
-    href === item.url || // /endpint?search=param
-    href.split('?')[0] === item.url || // endpoint
-    !!item?.items?.filter((i) => i.url === href).length || // if child nav is active
-    (mainNav &&
-      href.split('/')[1] !== '' &&
-      href.split('/')[1] === item?.url?.split('/')[1])
-  )
+  const path = href.split(/[?#]/)[0].replace(/\/$/, '') || '/'
+  const matches = (url: string | undefined) => {
+    if (!url) return false
+    const target = url.replace(/\/$/, '') || '/'
+    return path === target || (mainNav && target !== '/' && path.startsWith(`${target}/`))
+  }
+  return matches(item.url) || !!item.items?.some((child) => matches(child.url))
 }

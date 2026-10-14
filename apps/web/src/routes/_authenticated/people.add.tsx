@@ -1,0 +1,14 @@
+import { createFileRoute } from '@tanstack/react-router'
+import { PeopleAdd } from '@/features/boss/people-add'
+
+type Mode = 'photo' | 'file' | 'live'
+
+export const Route = createFileRoute('/_authenticated/people/add')({
+  validateSearch: (search: Record<string, unknown>): { mode?: Mode } => ({
+    mode: search.mode === 'photo' || search.mode === 'file' || search.mode === 'live' ? search.mode : undefined,
+  }),
+  component: function AddPeopleRoute() {
+    const { mode } = Route.useSearch()
+    return <PeopleAdd initialMode={mode ?? 'photo'} />
+  },
+})

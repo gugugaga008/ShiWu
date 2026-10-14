@@ -76,7 +76,7 @@ export function StatsPage() {
           options={[{ value: '14', label: '最近 14 天' }, { value: '30', label: '最近 30 天' }, { value: '90', label: '最近 90 天' }]} width='w-32' />
         <FilterSelect value={person} onChange={setPerson} placeholder='全部人员' options={people.map((p) => ({ value: p.person_id, label: p.name }))} />
         <FilterSelect value={role} onChange={setRole} placeholder='全部分组' options={roleOptions} width='w-32' />
-        <FilterSelect value={source} onChange={setSource} placeholder='全部视频源' options={sources.map((s) => ({ value: s, label: s }))} width='w-32' />
+        <FilterSelect value={source} onChange={setSource} placeholder='全部画面源' options={sources.map((s) => ({ value: s, label: s }))} width='w-32' />
         <Button variant='outline' className='ms-auto' asChild>
           <a href={withToken(`/stats/export.csv?${qs}`)} download>
             <Download /> 导出 CSV

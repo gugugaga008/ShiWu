@@ -122,8 +122,8 @@ async function poll() {
     });
     if (ended) return;
     if (response.status === 401) { end('预览凭据无效，请重新扫码'); return; }
-    if (response.status === 410) { end('预览已过期、撤销或视频源已结束'); return; }
-    if (response.status === 204) { clearFrame('暂无画面，等待视频源'); }
+    if (response.status === 410) { end('预览已过期、撤销或画面源已结束'); return; }
+    if (response.status === 204) { clearFrame('暂无画面，等待画面源'); }
     else if (response.ok) {
       const blob = await response.blob();
       if (ended || document.hidden) return;
@@ -135,7 +135,7 @@ async function poll() {
       status.textContent = '实时预览（约每秒四帧）';
     } else { clearFrame('暂时无法获取画面'); }
   } catch (_) {
-    if (!ended) clearFrame('连接断开，预览可能已过期、撤销或视频源已结束');
+    if (!ended) clearFrame('连接断开，预览可能已过期、撤销或画面源已结束');
   } finally {
     clearTimeout(timeout);
     if (!ended) setTimeout(poll, nextPoll);
@@ -267,7 +267,7 @@ class _Handler(BaseHTTPRequestHandler):
         else:
             expires_at = manager.page_expiry(sid, self.server.server_address[0])
             if expires_at is None:
-                self._reply(410, "预览已过期、撤销或视频源已结束".encode())
+                self._reply(410, "预览已过期、撤销或画面源已结束".encode())
             else:
                 self._reply(200, _PAGE.replace("__EXPIRES_AT__", str(expires_at)).encode(),
                             "text/html; charset=utf-8")
@@ -353,7 +353,7 @@ class MobilePreview:
             self._prune_locked()
             runner = self.runtime.runners.get(source)
             if runner is None or not self._running(runner):
-                raise HTTPException(409, "视频源不存在或已停止，请先启动该视频源")
+                raise HTTPException(409, "画面源不存在或已停止，请先启动该画面源")
             if len(self._sessions) >= self.MAX_SESSIONS:
                 raise HTTPException(429, "手机预览会话已达上限，请先断开已有手机预览")
             listener = self._listeners.get(selected)
@@ -400,11 +400,11 @@ class MobilePreview:
         with self._lock:
             self._sessions.pop(sid, None)
             self._prune_locked()
-        # 幂等撤销，已过期或已停止的视频源无需报错。
+        # 幂等撤销，已过期或已停止的画面源无需报错。
         return {"success": True}
 
     def revoke_source(self, source: str) -> dict:
-        """按视频源原子撤销，覆盖多标签页同时生成的所有二维码。"""
+        """按画面源原子撤销，覆盖多标签页同时生成的所有二维码。"""
         with self._lock:
             for sid, session in list(self._sessions.items()):
                 if session.source == source:
@@ -435,7 +435,7 @@ class MobilePreview:
                 return 401, "预览凭据无效".encode()
             if session is None or session.address != address or not self._valid(session):
                 self._prune_locked()
-                return 410, "预览已过期、撤销或视频源已结束".encode()
+                return 410, "预览已过期、撤销或画面源已结束".encode()
             jpeg = session.runner.latest_jpeg
             return (200, jpeg) if jpeg else (204, b"")
 

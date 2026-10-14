@@ -1,6 +1,6 @@
 import { type ReactNode, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FlaskConical, Pause, Play, Plus, Save, Trash2 } from 'lucide-react'
+import { Activity, Clock3, Filter, FlaskConical, MonitorPlay, Pause, Play, Plus, Save, Trash2, UserRound, Users, Zap, type LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -98,10 +98,10 @@ function ParamEditor({ a, onChange }: { a: Action; onChange: (p: Action['params'
   return null
 }
 
-function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
+function Field({ label, children, hint, icon: Icon }: { label: string; children: ReactNode; hint?: string; icon?: LucideIcon }) {
   return (
     <div className='grid gap-1.5'>
-      <Label>{label}</Label>
+      <Label>{Icon && <Icon className='size-4' aria-hidden />}{label}</Label>
       {children}
       {hint && <span className='text-xs text-muted-foreground'>{hint}</span>}
     </div>
@@ -185,7 +185,7 @@ function RuleCard({ r, types, people, sources, onChange, onDelete }: {
       <CardContent className='grid gap-4'>
         <div className='grid grid-cols-1 gap-3'>
           {kind !== 'stranger' && (
-            <Field label='分组'>
+            <Field label='分组' icon={Users}>
               <Select value={r.role ?? '_any'} onValueChange={(v) => onChange({ ...r, role: v === '_any' ? null : v })}>
                 <SelectTrigger className='w-full'>
                   <SelectValue />
@@ -217,7 +217,7 @@ function RuleCard({ r, types, people, sources, onChange, onDelete }: {
           )}
         </div>
         {(kind === 'person' || (kind === 'whitelist' && r.person_ids.length > 0)) && (
-          <Field label='人员（可多选）'>
+          <Field label='人员（可多选）' icon={UserRound}>
             <div className='flex flex-wrap gap-1.5'>
               {people.map((p) => {
                 const on = r.person_ids.includes(p.person_id)
@@ -234,8 +234,8 @@ function RuleCard({ r, types, people, sources, onChange, onDelete }: {
           </Field>
         )}
         <div className='grid gap-3 rounded-md border p-3'>
-          <span className='text-sm font-medium'>条件 <span className='text-xs font-normal text-muted-foreground'>（全部满足才匹配；不设置即不限）</span></span>
-          <Field label='视频源'>
+          <span className='flex items-center gap-2 text-sm font-medium'><Filter className='size-4' aria-hidden />条件 <span className='text-xs font-normal text-muted-foreground'>（全部满足才匹配；不设置即不限）</span></span>
+          <Field label='画面源' icon={MonitorPlay}>
             <div className='flex flex-wrap gap-1.5'>
               {allSources.map((n) => {
                 const on = r.sources.includes(n)
@@ -246,10 +246,10 @@ function RuleCard({ r, types, people, sources, onChange, onDelete }: {
                   </Button>
                 )
               })}
-              <span className='self-center text-xs text-muted-foreground'>{r.sources.length ? '' : '所有视频源'}</span>
+              <span className='self-center text-xs text-muted-foreground'>{r.sources.length ? '' : '所有画面源'}</span>
             </div>
           </Field>
-          <Field label='时间段（星期 + 时间窗）'>
+          <Field label='时间段（星期 + 时间窗）' icon={Clock3}>
             <ScheduleEditor value={r.schedule} onChange={(schedule) => onChange({ ...r, schedule })} />
           </Field>
           <div className='grid grid-cols-1 gap-3'>
@@ -266,7 +266,7 @@ function RuleCard({ r, types, people, sources, onChange, onDelete }: {
             <Switch checked={r.suppress_others} onCheckedChange={(suppress_others) => onChange({ ...r, suppress_others })} />
             <span>
               同时抑制其他规则
-              <span className='block text-xs text-muted-foreground'>白名单人员在画面中时，同一视频源里其他人也不触发（例如陪同客户时）</span>
+              <span className='block text-xs text-muted-foreground'>白名单人员在画面中时，同一画面源里其他人也不触发（例如陪同客户时）</span>
             </span>
           </label>
         ) : (
@@ -284,7 +284,7 @@ function RuleCard({ r, types, people, sources, onChange, onDelete }: {
               )}
             </label>
             <div className='grid gap-2 rounded-md border p-3'>
-              <span className='text-sm font-medium'>动作</span>
+              <span className='flex items-center gap-2 text-sm font-medium'><Zap className='size-4' aria-hidden />动作</span>
               <div className='grid grid-cols-1 gap-1.5'>
                 {types.map((t) => (
                   <label key={t.value} className='flex items-center gap-2 text-sm' title={ACTION_HINT[t.value]}>
@@ -357,7 +357,7 @@ export function Rules() {
       <Card className='mb-4'>
         <CardHeader className='flex flex-row items-center justify-between space-y-0'>
           <div>
-            <CardTitle>监控状态：{mon?.paused ? '已暂停' : '监控中'}</CardTitle>
+            <CardTitle className='flex items-center gap-2'><Activity className='size-4' aria-hidden />监控状态：{mon?.paused ? '已暂停' : '监控中'}</CardTitle>
             <CardDescription>
               已触发 {mon?.fired ?? 0} 次 · 白名单抑制 {mon?.suppressed ?? 0} 次 · 托盘菜单或 Ctrl+Alt+P 也可暂停/恢复
             </CardDescription>

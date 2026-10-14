@@ -1,4 +1,4 @@
-"""/boss 路由：视频源控制、管道、采集会话、聚类编辑、确认入库、人员、规则、WebSocket。"""
+"""/boss 路由：画面源控制、管道、采集会话、聚类编辑、确认入库、人员、规则、WebSocket。"""
 from __future__ import annotations
 
 import asyncio
@@ -54,7 +54,7 @@ def events(limit: int = 50, type: Optional[str] = None):
     return ev[:limit]
 
 
-# ------------------------------------------------------------------ 视频源 / 管道
+# ------------------------------------------------------------------ 画面源 / 管道
 @router.get("/sources/videos")
 def videos():
     return runtime.videos()
@@ -189,7 +189,7 @@ def mobile_preview_revoke(sid: str, response: Response):
     return runtime.mobile_preview.revoke(sid)
 
 
-# ------------------------------------------------------------------ 一键采集
+# ------------------------------------------------------------------ 视频 / 现场采集
 class CaptureReq(BaseModel):
     kind: Literal["file", "url", "camera"] = "file"
     uri: str
@@ -593,7 +593,7 @@ def stats_csv(days: int = Query(7, ge=1, le=90), person_id: Optional[str] = None
 
 @router.get("/sources/names")
 def source_names():
-    """规则可限定的视频源名称：运行中 + 默认源 + 历史事件里出现过的。"""
+    """规则可限定的画面源名称：运行中 + 默认源 + 历史事件里出现过的。"""
     names = list(runtime.runners)
     for s in runtime.settings().get("default_sources") or []:
         if s.get("name") and s["name"] not in names:

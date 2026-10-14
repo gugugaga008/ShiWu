@@ -182,7 +182,7 @@ def test_no_lan_and_bad_source(api, preview, monkeypatch):
     for body in ({}, {"source": ""}, {"source": 12}):
         assert api.post("/boss/mobile-preview", json=body).status_code == 422
     response = api.post("/boss/mobile-preview", json={"source": "不存在"})
-    assert response.status_code == 409 and "视频源" in response.json()["detail"]
+    assert response.status_code == 409 and "画面源" in response.json()["detail"]
     monkeypatch.setattr(mobile, "local_private_ipv4", lambda: [])
     response = api.post("/boss/mobile-preview", json={"source": "摄像头 A"})
     assert response.status_code == 503 and "局域网" in response.json()["detail"]

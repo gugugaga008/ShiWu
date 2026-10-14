@@ -1,12 +1,12 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, ImagePlus, Pencil, Trash2, UserPlus } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { Check, ImagePlus, Pencil, Trash2, UserPlus, UserRound, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -23,48 +23,18 @@ export function People() {
     qc.invalidateQueries({ queryKey: ['people'] })
     qc.invalidateQueries({ queryKey: ['status'] })
   }
-  const [newName, setNewName] = useState('')
-  const [newRole, setNewRole] = useState('staff')
-  const create = useMutation({
-    mutationFn: async () => (await api.post('/people', { name: newName.trim(), role: newRole })).data,
-    onSuccess: () => {
-      setNewName('')
-      toast.success('已新建，请补录照片')
-      inv()
-    },
-    onError: (e) => toast.error(errMsg(e)),
-  })
   return (
     <Page title='人员管理' desc='姓名用于区分个人，老板/领导/同事是分组；补录照片不会修改姓名或分组'>
-      <div className='mb-3 flex max-w-lg items-end gap-2'>
-        <div className='grid flex-1 gap-1.5'>
-          <Label htmlFor='new-person-name'>姓名</Label>
-          <Input id='new-person-name' placeholder='新建人员姓名' value={newName} onChange={(e) => setNewName(e.target.value)} />
-        </div>
-        <div className='grid gap-1.5'>
-          <Label htmlFor='new-person-group'>分组</Label>
-          <Select value={newRole} onValueChange={setNewRole}>
-            <SelectTrigger id='new-person-group' className='w-28'><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value='boss'>老板</SelectItem>
-              <SelectItem value='leader'>领导</SelectItem>
-              <SelectItem value='staff'>同事</SelectItem>
-              <SelectItem value='whitelist'>白名单</SelectItem>
-              <SelectItem value='ignore'>忽略</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <Button disabled={!newName.trim() || create.isPending} onClick={() => create.mutate()}>
-          <UserPlus /> 新建
-        </Button>
+      <div className='mb-3'>
+        <Button asChild><Link to='/people/add'><UserPlus /> 添加人员</Link></Button>
       </div>
       <Card>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>姓名</TableHead>
-                <TableHead>分组</TableHead>
+                <TableHead><span className='flex items-center gap-1.5'><UserRound className='size-4' />姓名</span></TableHead>
+                <TableHead><span className='flex items-center gap-1.5'><Users className='size-4' />分组</span></TableHead>
                 <TableHead>人脸模板</TableHead>
                 <TableHead>注册时间</TableHead>
                 <TableHead className='text-end'>操作</TableHead>
@@ -75,6 +45,11 @@ export function People() {
                 <TableRow>
                   <TableCell colSpan={5}>加载中…</TableCell>
                 </TableRow>
+              )}
+              {!isLoading && people.length === 0 && (
+                <TableRow><TableCell colSpan={5} className='py-8 text-center text-muted-foreground'>
+                  <span className='inline-flex items-center gap-2'><Users className='size-5' />暂无人员，请点击「添加人员」录入照片或采集。</span>
+                </TableCell></TableRow>
               )}
               {people.map((p) => (
                 <PersonRow key={p.person_id} p={p} onChanged={inv} />
@@ -117,10 +92,15 @@ function PersonRow({ p, onChanged }: { p: Person; onChanged: () => void }) {
       return (await api.post(`/people/${p.person_id}/photos`, fd)).data
     },
     onSuccess: (d) => {
-      toast.success(`补录完成：通过 ${d.accepted} 张，拒绝 ${d.rejected?.length ?? 0} 张`)
+      if (d.accepted > 0) toast.success(`补录完成：通过 ${d.accepted} 张，拒绝 ${d.rejected?.length ?? 0} 张`)
+      else toast.error('未录入任何照片，请更换清晰正脸照片后重试')
+      if (fileRef.current) fileRef.current.value = ''
       onChanged()
     },
-    onError: (e) => toast.error(errMsg(e)),
+    onError: (e) => {
+      if (fileRef.current) fileRef.current.value = ''
+      toast.error(errMsg(e))
+    },
   })
   return (
     <TableRow>

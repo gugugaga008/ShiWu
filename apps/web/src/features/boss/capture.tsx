@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Merge, Radio, Split } from 'lucide-react'
+import { Camera, Folder, Merge, Radio, Split, UserRound, Users, Video } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -11,7 +11,6 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { api, type Capture, type Cluster, type Person, errMsg, ROLE_LABEL, ROLE_VARIANT, withToken } from '@/lib/api'
-import { Page } from './page'
 import { SourcePicker, type SourceValue } from './source-picker'
 
 const STATUS: Record<string, string> = {
@@ -23,9 +22,10 @@ const STATUS: Record<string, string> = {
   cancelled: '已取消',
 }
 
-export function CapturePage() {
+export function CaptureWorkspace({ mode }: { mode: 'file' | 'live' }) {
   const qc = useQueryClient()
-  const [src, setSrc] = useState<SourceValue>({ kind: 'file', uri: '' })
+  const kinds: SourceValue['kind'][] = mode === 'file' ? ['file'] : ['camera', 'url']
+  const [src, setSrc] = useState<SourceValue>({ kind: mode === 'file' ? 'file' : 'camera', uri: '' })
   const [duration, setDuration] = useState(15)
   const [sid, setSid] = useState<string | null>(null)
   const [selected, setSelected] = useState<number[]>([])
@@ -34,7 +34,8 @@ export function CapturePage() {
     queryKey: ['captures'],
     queryFn: async () => (await api.get<Capture[]>('/captures')).data,
   })
-  const current = sid ?? list[0]?.id ?? null
+  const sessions = list.filter((session) => kinds.includes(session.source.kind as SourceValue['kind']))
+  const current = sid ?? sessions[0]?.id ?? null
   const { data: cap } = useQuery({
     queryKey: ['capture', current],
     enabled: !!current,
@@ -53,8 +54,12 @@ export function CapturePage() {
   }
 
   const start = useMutation({
-    mutationFn: async () => (await api.post<Capture>('/captures', { ...src, duration_s: duration })).data,
+    mutationFn: async () => {
+      if (!kinds.includes(src.kind)) throw new Error('当前添加方式不支持此画面源')
+      return (await api.post<Capture>('/captures', { ...src, duration_s: duration })).data
+    },
     onSuccess: (c) => {
+      qc.setQueryData(['capture', c.id], c)
       setSid(c.id)
       setSelected([])
       qc.invalidateQueries({ queryKey: ['captures'] })
@@ -72,22 +77,43 @@ export function CapturePage() {
   })
 
   const pending = cap?.clusters.filter((c) => c.status === 'pending').length ?? 0
+  const busy = start.isPending || !!cap && ['created', 'recording', 'clustering'].includes(cap.status)
+  const validDuration = Number.isFinite(duration) && duration >= 3 && duration <= 120
   return (
-    <Page title='一键采集' desc='录一段视频 → 自动聚类候选人物 → 填写姓名、选择分组 → 入库；老板/领导/同事是分组，不是姓名'>
+    <>
       <Card>
         <CardHeader>
-          <CardTitle>1. 选择视频源并采集</CardTitle>
+          <CardTitle className='flex items-center gap-2'>
+            {mode === 'file' ? <Video className='size-5' /> : <Camera className='size-5' />}
+            {mode === 'file' ? '1. 视频文件添加：选择文件并分析' : '1. 现场采集添加：选择摄像头或网络流'}
+          </CardTitle>
+          <CardDescription>候选人物分别填写姓名与分组；切换添加方式不会中断当前任务。</CardDescription>
         </CardHeader>
         <CardContent className='grid gap-4 lg:grid-cols-[1fr_160px_auto] lg:items-end'>
-          <SourcePicker value={src} onChange={setSrc} />
+          <SourcePicker value={src} onChange={setSrc} kinds={kinds} />
           <div className='grid gap-1.5'>
-            <Label>录制时长（秒）</Label>
-            <Input type='number' min={3} max={120} value={duration} onChange={(e) => setDuration(+e.target.value)} />
+            <Label htmlFor={`capture-duration-${mode}`}>{mode === 'file' ? '分析时长（秒）' : '录制时长（秒）'}</Label>
+            <Input id={`capture-duration-${mode}`} type='number' min={3} max={120} value={duration} onChange={(e) => setDuration(+e.target.value)} />
           </div>
-          <Button disabled={!src.uri || start.isPending} onClick={() => start.mutate()}>
-            <Radio /> 开始采集
+          <Button disabled={!src.uri.trim() || !kinds.includes(src.kind) || !validDuration || busy} onClick={() => start.mutate()}>
+            <Radio /> {mode === 'file' ? '开始分析' : '开始采集'}
           </Button>
         </CardContent>
+        {sessions.length > 1 && (
+          <CardContent className='grid gap-1.5'>
+            <Label htmlFor={`capture-session-${mode}`}>恢复采集任务</Label>
+            <Select value={current ?? ''} onValueChange={(id) => { setSid(id); setSelected([]) }}>
+              <SelectTrigger id={`capture-session-${mode}`}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {sessions.map((session) => (
+                  <SelectItem key={session.id} value={session.id}>
+                    {session.source.uri.split('/').pop()} · {STATUS[session.status] ?? session.status} · {session.id}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </CardContent>
+        )}
         {cap && (
           <CardFooter className='flex flex-wrap gap-3 text-sm text-muted-foreground'>
             <Badge variant={cap.status === 'error' ? 'destructive' : 'secondary'}>{STATUS[cap.status] ?? cap.status}</Badge>
@@ -103,6 +129,10 @@ export function CapturePage() {
         )}
       </Card>
 
+      {!cap && <div className='mt-6 flex items-center gap-2 text-sm text-muted-foreground'><Folder className='size-5' />尚无{mode === 'file' ? '视频分析' : '现场采集'}任务，请先选择画面源。</div>}
+      {cap?.status === 'ready' && cap.clusters.length === 0 && (
+        <div className='mt-6 flex items-center gap-2 text-sm text-muted-foreground'><Users className='size-5' />未发现候选人物，请更换视频或调整采集时长后重试。</div>
+      )}
       {cap?.status === 'ready' && (
         <>
           <div className='mt-6 mb-3 flex items-center justify-between'>
@@ -126,7 +156,7 @@ export function CapturePage() {
           </div>
         </>
       )}
-    </Page>
+    </>
   )
 }
 
@@ -242,11 +272,11 @@ function ClusterCard({
             ) : (
               <div className='grid grid-cols-[1fr_110px] gap-2'>
                 <div className='grid gap-1.5'>
-                  <Label htmlFor={`capture-name-${sid}-${c.id}`}>姓名</Label>
+                  <Label htmlFor={`capture-name-${sid}-${c.id}`}><UserRound className='size-4' />姓名</Label>
                   <Input id={`capture-name-${sid}-${c.id}`} placeholder='请输入姓名，如 张三' value={name} onChange={(e) => setName(e.target.value)} />
                 </div>
                 <div className='grid gap-1.5'>
-                  <Label htmlFor={`capture-group-${sid}-${c.id}`}>分组</Label>
+                  <Label htmlFor={`capture-group-${sid}-${c.id}`}><Users className='size-4' />分组</Label>
                   <Select value={role} onValueChange={setRole}>
                     <SelectTrigger id={`capture-group-${sid}-${c.id}`} className='w-full'>
                       <SelectValue />

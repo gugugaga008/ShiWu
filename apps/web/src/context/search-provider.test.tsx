@@ -198,7 +198,7 @@ describe('SearchProvider and CommandMenu', () => {
 
     await openCommandPalette(screen)
 
-    await userEvent.click(screen.getByText('视频源'))
+    await userEvent.click(screen.getByText('画面源'))
 
     expect(mocks.navigate).toHaveBeenCalledWith({ to: '/sources' })
     await expect
@@ -206,8 +206,17 @@ describe('SearchProvider and CommandMenu', () => {
       .not.toBeInTheDocument()
   })
 
+  it('searches the actual add-person submenu by its Chinese title', async () => {
+    const screen = await renderWithSearchProvider()
+    await openCommandPalette(screen)
+    await userEvent.fill(screen.getByPlaceholder(COMMAND_MENU_PLACEHOLDER), '添加人员')
+    await userEvent.click(screen.getByRole('option', { name: '人员管理 添加人员' }))
+    expect(mocks.navigate).toHaveBeenCalledWith({ to: '/people/add' })
+    await expect.element(screen.getByPlaceholder(COMMAND_MENU_PLACEHOLDER)).not.toBeInTheDocument()
+  })
+
   it('navigates for nested sidebar items (group with sub-items)', async () => {
-    // 产品侧栏为扁平结构，独立夹具保留嵌套导航分支的覆盖。
+    // 独立夹具覆盖任意嵌套导航，避免只验证产品内的固定菜单。
     sidebarData.navGroups = [{
       title: '测试导航',
       items: [{ title: '测试子菜单', items: [{ title: '测试页面', url: '/sources' }] }],

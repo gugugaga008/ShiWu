@@ -3,11 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from 'vitest-browser-react'
 import { page } from 'vitest/browser'
 import '@/styles/index.css'
+import { useSettingsDialog } from '@/hooks/use-settings-dialog'
 import { SettingsDialog } from './settings'
 
 const requests = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn(), post: vi.fn() }))
 vi.mock('@/lib/api', async (original) => ({ ...(await original<typeof import('@/lib/api')>()), api: requests }))
-vi.mock('./source-picker', () => ({ SourcePicker: () => null }))
 
 const clients: QueryClient[] = []
 const settings = {
@@ -24,8 +24,10 @@ async function setup() {
   return render(<QueryClientProvider client={qc}><SettingsDialog open onOpenChange={() => {}} /></QueryClientProvider>)
 }
 beforeEach(() => {
-  requests.get.mockImplementation((path: string) => Promise.resolve({ data: path === '/settings' ? settings : { pipelines: [{ name: '门口', running: true }] } }))
+  useSettingsDialog.setState({ open: false, section: 'sources' })
+  requests.get.mockImplementation((path: string) => Promise.resolve({ data: path === '/settings' ? settings : path === '/sources/videos' ? [{ name: '测试视频', path: 'test.mp4', duration_s: 10, width: 1280, height: 720 }] : { pipelines: [{ name: '门口', running: true }], max_sources: 4 } }))
   requests.put.mockResolvedValue({ data: {} })
+  requests.post.mockResolvedValue({ data: {} })
 })
 afterEach(async () => {
   await cleanup()
@@ -37,6 +39,8 @@ describe('分层设置弹窗', () => {
   it('一次只展示一个二级菜单，切换菜单保留草稿并统一保存', async () => {
     const screen = await setup()
     await expect.element(screen.getByRole('dialog')).toBeVisible()
+    await expect.element(screen.getByRole('button', { name: /并启动/ })).toBeVisible()
+    await screen.getByRole('button', { name: '默认画面源', exact: true }).click()
     await expect.element(screen.getByRole('button', { name: '添加默认源' })).toBeVisible()
     expect(document.querySelector('input[placeholder="smtp.qq.com"]')).toBeNull()
     await screen.getByRole('button', { name: '邮件通知', exact: true }).click()
@@ -47,6 +51,19 @@ describe('分层设置弹窗', () => {
     await expect.element(screen.getByPlaceholder('smtp.qq.com')).toHaveValue('mail.example.test')
     await screen.getByRole('button', { name: '保存设置', exact: true }).click()
     await expect.poll(() => requests.put.mock.calls[0]?.[1].smtp_host).toBe('mail.example.test')
+  })
+
+  it('添加画面源在设置内立即启动，无需保存设置，跨菜单保留添加草稿', async () => {
+    const screen = await setup()
+    await screen.getByRole('textbox', { name: '名称', exact: true }).fill('走廊')
+    await screen.getByRole('combobox', { name: '视频文件', exact: true }).click()
+    await screen.getByRole('option', { name: /测试视频/ }).click()
+    await screen.getByRole('button', { name: '邮件通知', exact: true }).click()
+    await screen.getByRole('button', { name: '画面源', exact: true }).click()
+    await expect.element(screen.getByRole('textbox', { name: '名称', exact: true })).toHaveValue('走廊')
+    await screen.getByRole('button', { name: '添加并启动', exact: true }).click()
+    await expect.poll(() => requests.post.mock.calls[0]).toEqual(['/pipeline/start', { name: '走廊', kind: 'file', uri: 'test.mp4', loop: true, width: 1280, height: 720 }])
+    expect(requests.put).not.toHaveBeenCalled()
   })
 
   it('设置内提供手机扫码入口，不展示电脑实时画面也不自动签发会话', async () => {

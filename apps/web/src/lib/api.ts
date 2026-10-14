@@ -52,9 +52,9 @@ export const EVENT_LABEL: Record<string, string> = {
   track_identity: '轨迹确认身份',
   face_unknown: '陌生人脸',
   track_lost: '轨迹消失',
-  source_started: '视频源启动',
-  source_ended: '视频源结束',
-  source_error: '视频源错误',
+  source_started: '画面源启动',
+  source_ended: '画面源结束',
+  source_error: '画面源错误',
   left: '离开（自动恢复）',
 }
 

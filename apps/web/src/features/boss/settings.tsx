@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSettingsDialog } from '@/hooks/use-settings-dialog'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronRight, Mail, Plus, Save, Trash2 } from 'lucide-react'
+import { Camera, ChevronRight, Gauge, Image, Mail, MonitorPlay, Plus, Power, QrCode, Save, Settings2, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
 import { MobilePreview } from './mobile-preview'
 import { Page } from './page'
 import { SourcePicker, type SourceValue } from './source-picker'
+import { SourceAdd } from './source-add'
 
 type NamedSource = SourceValue & { name: string }
 type Settings = {
@@ -57,19 +58,17 @@ function Row({ label, desc, children }: { label: string; desc?: string; children
 }
 
 const MENU = [
-  { label: '基础', items: [{ id: 'sources', label: '默认视频源' }, { id: 'startup', label: '启动' }] },
-  { label: '监控与隐私', items: [{ id: 'preview', label: '手机扫码预览' }, { id: 'performance', label: '性能' }, { id: 'snapshots', label: '触发快照' }] },
-  { label: '通知', items: [{ id: 'email', label: '邮件通知' }] },
+  { label: '基础', items: [{ id: 'sources', label: '画面源', icon: MonitorPlay }, { id: 'defaults', label: '默认画面源', icon: Camera }, { id: 'startup', label: '启动', icon: Power }] },
+  { label: '监控与隐私', items: [{ id: 'preview', label: '手机扫码预览', icon: QrCode }, { id: 'performance', label: '性能', icon: Gauge }, { id: 'snapshots', label: '触发快照', icon: Image }] },
+  { label: '通知', items: [{ id: 'email', label: '邮件通知', icon: Mail }] },
 ] as const
-
-type Section = typeof MENU[number]['items'][number]['id']
 
 export function SettingsPage() {
   const setOpen = useSettingsDialog((s) => s.setOpen)
   useEffect(() => { setOpen(true) }, [setOpen])
   return (
     <Page title='设置' desc='按分类管理配置，实时画面仅在手机查看'>
-      <Button onClick={() => setOpen(true)}>打开设置</Button>
+      <Button onClick={() => setOpen(true)}><Settings2 aria-hidden />打开设置</Button>
     </Page>
   )
 }
@@ -79,8 +78,8 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className='flex max-h-[90dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl'>
         <DialogHeader className='shrink-0 border-b p-5'>
-          <DialogTitle>设置</DialogTitle>
-          <DialogDescription>选择分类下的二级菜单；更改后点击保存，关闭不会自动保存。</DialogDescription>
+          <DialogTitle className='flex items-center gap-2'><Settings2 className='size-5' aria-hidden />设置</DialogTitle>
+          <DialogDescription>参数修改需保存；添加／启动画面源、手机预览立即生效。关闭不自动保存参数。</DialogDescription>
         </DialogHeader>
         {open && <SettingsForm />}
       </DialogContent>
@@ -98,13 +97,13 @@ function PreviewSettings() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>手机扫码预览</CardTitle>
+        <CardTitle className='flex items-center gap-2'><QrCode className='size-5' aria-hidden />手机扫码预览</CardTitle>
         <CardDescription>隐藏二维码或关闭设置，手机仍可查看至本次会话到期。电脑不展示实时画面。</CardDescription>
       </CardHeader>
       <CardContent className='grid gap-3'>
-        {isError && <p role='alert'>无法读取视频源状态，请稍后重试。</p>}
-        {!isError && !data && <p role='status'>正在读取视频源…</p>}
-        {data && pipelines.length === 0 && <p className='text-sm text-muted-foreground'>暂无视频源，请先在「视频源」页面添加并启动。</p>}
+        {isError && <p role='alert'>无法读取画面源状态，请稍后重试。</p>}
+        {!isError && !data && <p role='status'>正在读取画面源…</p>}
+        {data && pipelines.length === 0 && <p className='text-sm text-muted-foreground'>暂无画面源，请先在设置的「画面源」菜单添加并启动。</p>}
         {pipelines.map((p) => (
           <div key={p.name} className='flex flex-wrap items-center justify-between gap-3 rounded-md border p-3'>
             <div><div className='font-medium'>{p.name}</div><p className='text-xs text-muted-foreground'>{p.running ? '运行中' : '已停止'}</p></div>
@@ -118,7 +117,7 @@ function PreviewSettings() {
 }
 
 function SettingsForm() {
-  const [section, setSection] = useState<Section>('sources')
+  const { section, setSection } = useSettingsDialog()
   const { data } = useQuery({ queryKey: ['settings'], queryFn: async () => (await api.get<Settings>('/settings')).data })
   const qc = useQueryClient()
   const [s, setS] = useState<Settings | null>(null)
@@ -173,7 +172,7 @@ function SettingsForm() {
                   <button key={item.id} type='button' aria-current={section === item.id ? 'page' : undefined}
                     className={cn('flex items-center justify-between rounded-md px-2 py-2 text-start text-sm hover:bg-accent', section === item.id && 'bg-accent font-medium')}
                     onClick={() => setSection(item.id)}>
-                    {item.label}<ChevronRight className='size-3.5' />
+                    <span className='flex items-center gap-2'><item.icon className='size-4 shrink-0' aria-hidden />{item.label}</span><ChevronRight className='size-3.5' aria-hidden />
                   </button>
                 ))}
               </div>
@@ -181,10 +180,11 @@ function SettingsForm() {
           ))}
         </nav>
         <div className='min-w-0 flex-1 p-4 md:overflow-y-auto' aria-label='设置内容'>
+        <div hidden={section !== 'sources'}><SourceAdd /></div>
         {section === 'preview' && <PreviewSettings />}
-        {section === 'sources' && <Card>
+        {section === 'defaults' && <Card>
           <CardHeader>
-            <CardTitle>默认视频源</CardTitle>
+            <CardTitle className='flex items-center gap-2'><Camera className='size-5' aria-hidden />默认画面源</CardTitle>
             <CardDescription>桌面端启动（含开机自启）后自动开始监控；可设多路，同时运行</CardDescription>
           </CardHeader>
           <CardContent className='grid gap-3'>
@@ -192,7 +192,7 @@ function SettingsForm() {
               <div key={i} className='grid gap-2 rounded-md border p-3'>
                 <div className='flex items-center gap-2'>
                   <Input className='h-8 w-36' value={d.name} placeholder='名称' onChange={(e) => set({ default_sources: s.default_sources.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })} />
-                  <span className='flex-1 text-xs text-muted-foreground'>规则可按此名称限定视频源</span>
+                  <span className='flex-1 text-xs text-muted-foreground'>规则可按此名称限定画面源</span>
                   <Button size='icon' variant='ghost' className='size-8' onClick={() => set({ default_sources: s.default_sources.filter((_, j) => j !== i) })}>
                     <Trash2 />
                   </Button>
@@ -229,20 +229,20 @@ function SettingsForm() {
         </Card>}
         {section === 'startup' && <Card>
           <CardHeader>
-            <CardTitle>启动</CardTitle>
+            <CardTitle className='flex items-center gap-2'><Power className='size-5' aria-hidden />启动</CardTitle>
           </CardHeader>
           <CardContent>
             <Row label='开机自启' desc='登录系统后在托盘静默启动（Windows/macOS 登录项，Linux 写入 ~/.config/autostart）'>
               <Switch checked={s.autostart} onCheckedChange={(autostart) => set({ autostart })} />
             </Row>
-            <Row label='启动后自动开始监控' desc='使用上面的默认视频源'>
+            <Row label='启动后自动开始监控' desc='使用「默认画面源」中保存的配置'>
               <Switch checked={s.auto_monitor} onCheckedChange={(auto_monitor) => set({ auto_monitor })} />
             </Row>
           </CardContent>
         </Card>}
         {section === 'performance' && <Card>
           <CardHeader>
-            <CardTitle>性能</CardTitle>
+            <CardTitle className='flex items-center gap-2'><Gauge className='size-5' aria-hidden />性能</CardTitle>
             <CardDescription>自适应抽帧：画面有人时提高识别帧率，没人时降频省电，并按单帧耗时自动限速</CardDescription>
           </CardHeader>
           <CardContent>
@@ -255,7 +255,7 @@ function SettingsForm() {
             <Row label='无人时帧率（fps）'>
               <Input className='w-24' type='number' min={0.5} max={10} step={0.5} value={s.idle_fps} onChange={(e) => set({ idle_fps: +e.target.value })} />
             </Row>
-            <Row label='最多同时运行视频源' desc='多路共享一个识别引擎，路数越多每路帧率越低'>
+            <Row label='最多同时运行画面源' desc='多路共享一个识别引擎，路数越多每路帧率越低'>
               <Input className='w-24' type='number' min={1} max={8} value={s.max_sources} onChange={(e) => set({ max_sources: +e.target.value })} />
             </Row>
           </CardContent>
@@ -263,7 +263,7 @@ function SettingsForm() {
         {section === 'snapshots' && <Card>
           <CardHeader>
             <CardTitle className='flex items-center gap-2'>
-              触发快照
+              <Image className='size-5' aria-hidden />触发快照
               {s.snapshots && <Badge variant='secondary'>{s.snapshots.encrypted ? 'AES-GCM 加密' : '未加密'}</Badge>}
             </CardTitle>
             <CardDescription>规则触发时保存一张带框画面，在「时间线」回看、随邮件发送</CardDescription>
@@ -280,7 +280,7 @@ function SettingsForm() {
         {section === 'email' && <Card>
           <CardHeader>
             <CardTitle className='flex items-center gap-2'>
-              邮件通知 {s.smtp_password_set && <Badge variant='secondary'>授权码已加密保存</Badge>}
+              <Mail className='size-5' aria-hidden />邮件通知 {s.smtp_password_set && <Badge variant='secondary'>授权码已加密保存</Badge>}
             </CardTitle>
             <CardDescription>在规则里勾选「发送邮件」动作后生效；邮件含时间、人员、分组与触发快照</CardDescription>
           </CardHeader>
@@ -350,9 +350,9 @@ function SettingsForm() {
         </div>
       </div>
       <div className='flex shrink-0 justify-end border-t p-4'>
-        <Button disabled={save.isPending || testMail.isPending} onClick={() => save.mutate()}>
+        {section === 'sources' || section === 'preview' ? <p className='text-sm text-muted-foreground'>本页操作立即生效</p> : <Button disabled={save.isPending || testMail.isPending} onClick={() => save.mutate()}>
           <Save /> {save.isPending ? '保存中…' : '保存设置'}
-        </Button>
+        </Button>}
       </div>
     </>
   )

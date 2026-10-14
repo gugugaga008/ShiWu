@@ -12,7 +12,7 @@ export type LiveFace = {
 }
 export type LiveFrame = { jpeg: string; faces: LiveFace[]; at: number }
 
-/** WebSocket：预览帧（按视频源分开）+ 实时事件 */
+/** WebSocket：预览帧（按画面源分开）+ 实时事件 */
 export function useLive(opts: { frames?: boolean } = {}) {
   const [frames, setFrames] = useState<Record<string, LiveFrame>>({})
   const [events, setEvents] = useState<BossEvent[]>([])

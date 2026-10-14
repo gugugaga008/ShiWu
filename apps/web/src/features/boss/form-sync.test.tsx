@@ -119,7 +119,7 @@ describe('服务端数据与编辑表单同步', () => {
     const qc = client()
     const response = settings('initial.smtp.local')
     qc.setQueryData(['settings'], response)
-    requests.get.mockResolvedValue({ data: response })
+    requests.get.mockImplementation((path: string) => Promise.resolve({ data: path === '/pipeline/status' ? { pipelines: [], max_sources: 4 } : response }))
     const screen = await render(form(qc, <SettingsDialog open onOpenChange={() => {}} />))
     await screen.getByRole('button', { name: '邮件通知', exact: true }).click()
     await screen.getByPlaceholder('smtp.qq.com').fill('saved.smtp.local')

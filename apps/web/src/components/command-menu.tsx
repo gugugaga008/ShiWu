@@ -53,7 +53,7 @@ export function CommandMenu() {
                       }}
                     >
                       <div className='flex size-4 items-center justify-center'>
-                        <ArrowRight className='size-2 text-muted-foreground/80' />
+                        {navItem.icon ? <navItem.icon className='size-4' aria-hidden /> : <ArrowRight className='size-2 text-muted-foreground/80' aria-hidden />}
                       </div>
                       {navItem.title}
                     </CommandItem>
@@ -62,15 +62,15 @@ export function CommandMenu() {
                 return navItem.items?.map((subItem, i) => (
                   <CommandItem
                     key={`${navItem.title}-${subItem.url}-${i}`}
-                    value={`${navItem.title}-${subItem.url}`}
+                    value={`${navItem.title} ${subItem.title} ${subItem.url}`}
                     onSelect={() => {
                       openPage(subItem.url)
                     }}
                   >
                     <div className='flex size-4 items-center justify-center'>
-                      <ArrowRight className='size-2 text-muted-foreground/80' />
+                      {subItem.icon ? <subItem.icon className='size-4' aria-hidden /> : <ArrowRight className='size-2 text-muted-foreground/80' aria-hidden />}
                     </div>
-                    {navItem.title} <ChevronRight /> {subItem.title}
+                    {navItem.title} <ChevronRight aria-hidden /> {subItem.title}
                   </CommandItem>
                 ))
               })}

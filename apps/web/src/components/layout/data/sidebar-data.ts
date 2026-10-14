@@ -1,12 +1,13 @@
 import {
   BarChart3,
-  Camera,
+  ContactRound,
+  UserRoundPlus,
   History,
   LayoutDashboard,
   Scale,
   Settings,
   Users,
-  Video,
+  MonitorPlay,
 } from 'lucide-react'
 import { type SidebarData } from '../types'
 
@@ -21,19 +22,17 @@ export const sidebarData: SidebarData = {
           icon: LayoutDashboard,
         },
         {
-          title: '视频源',
+          title: '画面源',
           url: '/sources',
-          icon: Video,
-        },
-        {
-          title: '一键采集',
-          url: '/capture',
-          icon: Camera,
+          icon: MonitorPlay,
         },
         {
           title: '人员管理',
-          url: '/people',
           icon: Users,
+          items: [
+            { title: '人员列表', url: '/people', icon: ContactRound },
+            { title: '添加人员', url: '/people/add', icon: UserRoundPlus },
+          ],
         },
       ],
     },

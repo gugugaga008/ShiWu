@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from 'vitest-browser-react'
 import { MobilePreview } from './mobile-preview'
 import { Sources } from './sources'
+import { useSettingsDialog } from '@/hooks/use-settings-dialog'
 
 const requests = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), delete: vi.fn() }))
 vi.mock('@/lib/api', async (original) => ({ ...(await original<typeof import('@/lib/api')>()), api: requests }))
@@ -20,6 +21,7 @@ function wrapper(children: ReactNode) {
 }
 
 beforeEach(() => {
+  useSettingsDialog.setState({ open: false, section: 'sources' })
   requests.get.mockResolvedValue({ data: [] })
   requests.post.mockResolvedValue({ data: session() })
   requests.delete.mockResolvedValue({ data: { success: true } })
@@ -72,7 +74,7 @@ describe('手机扫码预览', () => {
     expect(document.querySelector('img')).toBeNull()
   })
 
-  it('页面卸载不撤销，切回页面可恢复会话，停止的视频源不能预览', async () => {
+  it('页面卸载不撤销，切回页面可恢复会话，停止的画面源不能预览', async () => {
     const existing = session()
     const screen = await render(wrapper(<MobilePreview source='门口' />))
     await screen.getByRole('button', { name: '手机预览' }).click()
@@ -127,11 +129,24 @@ describe('手机扫码预览', () => {
     expect(requests.post).not.toHaveBeenCalled()
   })
 
-  it('视频源页面不渲染实时JPEG，即使实时通道已有帧', async () => {
+  it('画面源页面不渲染实时JPEG，即使实时通道已有帧', async () => {
     requests.get.mockResolvedValue({ data: { max_sources: 4, pipelines: [{ name: '门口', running: true, source: { name: '门口', kind: 'camera', uri: '0' }, stats: null, faces: [] }] } })
     const screen = await render(wrapper(<Sources />))
     await expect.element(screen.getByRole('button', { name: '手机预览' })).toBeVisible()
     expect(document.querySelector('img, video')).toBeNull()
+    expect(requests.post).not.toHaveBeenCalled()
+    expect(document.querySelector('input, [role="combobox"]')).toBeNull()
+    await screen.getByRole('button', { name: '管理画面源' }).click()
+    expect(useSettingsDialog.getState()).toMatchObject({ open: true, section: 'sources' })
+  })
+
+  it('画面源为空时引导到设置添加，不在状态页保留添加表单', async () => {
+    requests.get.mockResolvedValue({ data: { max_sources: 4, pipelines: [] } })
+    const screen = await render(wrapper(<Sources />))
+    await expect.element(screen.getByText('暂无画面源，先到设置添加并启动')).toBeVisible()
+    expect(document.querySelector('input, [role="combobox"]')).toBeNull()
+    await screen.getByRole('button', { name: '前往设置添加' }).click()
+    expect(useSettingsDialog.getState()).toMatchObject({ open: true, section: 'sources' })
     expect(requests.post).not.toHaveBeenCalled()
   })
 })

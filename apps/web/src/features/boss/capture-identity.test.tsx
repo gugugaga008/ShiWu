@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from 'vitest-browser-react'
 import { type Capture, type Cluster, type Person } from '@/lib/api'
-import { CapturePage } from './capture'
+import { CaptureWorkspace } from './capture'
 import { People } from './people'
 import '@/styles/index.css'
 
@@ -12,6 +12,7 @@ const notifications = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }))
 vi.mock('@/lib/api', async (original) => ({ ...(await original<typeof import('@/lib/api')>()), api: requests }))
 vi.mock('sonner', () => ({ toast: notifications }))
 vi.mock('./source-picker', () => ({ SourcePicker: () => null }))
+vi.mock('@tanstack/react-router', () => ({ Link: ({ to, children }: { to: string; children: ReactNode }) => <a href={to}>{children}</a> }))
 vi.mock('./page', () => ({
   Page: ({ children, desc }: { children: ReactNode; desc: string }) => <main><p>{desc}</p>{children}</main>,
 }))
@@ -67,7 +68,7 @@ afterEach(async () => {
 describe('采集人员的姓名与分组', () => {
   it('新面孔必须独立填写姓名，分组不能替代；入库后显示姓名与分组', async () => {
     const qc = seedCapture(cluster())
-    const screen = await render(form(qc, <CapturePage />))
+    const screen = await render(form(qc, <CaptureWorkspace mode='file' />))
     const enroll = screen.getByRole('button', { name: '确认姓名与分组并入库' })
     await expect.element(screen.getByRole('combobox', { name: '分组' })).toHaveTextContent('老板')
     await expect.element(enroll).toBeDisabled()
@@ -88,7 +89,7 @@ describe('采集人员的姓名与分组', () => {
 
   it('已有人员补录只发送 person_id，展示其当前姓名与分组，不意外改成老板', async () => {
     const qc = seedCapture(cluster({ known_person_id: 'p1', known_name: '旧姓名', known_similarity: 0.8 }), [person()])
-    const screen = await render(form(qc, <CapturePage />))
+    const screen = await render(form(qc, <CaptureWorkspace mode='file' />))
     await expect.element(screen.getByText('姓名：张三')).toBeVisible()
     await expect.element(screen.getByText('分组：同事')).toBeVisible()
     expect(document.querySelector('input:not([type]), input[type="text"]')).toBeNull()
@@ -103,7 +104,7 @@ describe('采集人员的姓名与分组', () => {
 
   it('取消补录后新建独立人员，不能自动复制疑似人员姓名；切回补录不发送新建草稿', async () => {
     const qc = seedCapture(cluster({ known_person_id: 'p1', known_name: '张三' }), [person()])
-    const screen = await render(form(qc, <CapturePage />))
+    const screen = await render(form(qc, <CaptureWorkspace mode='file' />))
     const attach = screen.getByRole('checkbox', { name: /补录到已有人员/ })
     await attach.click()
     await expect.element(screen.getByRole('textbox', { name: '姓名', exact: true })).toHaveValue('')
@@ -116,7 +117,7 @@ describe('采集人员的姓名与分组', () => {
 
   it('取消补录后可独立新建姓名与分组，不向疑似人员发起修改', async () => {
     const qc = seedCapture(cluster({ known_person_id: 'p1', known_name: '张三' }), [person()])
-    const screen = await render(form(qc, <CapturePage />))
+    const screen = await render(form(qc, <CaptureWorkspace mode='file' />))
     await screen.getByRole('checkbox', { name: /补录到已有人员/ }).click()
     await screen.getByRole('textbox', { name: '姓名', exact: true }).fill('李四')
     await screen.getByRole('combobox', { name: '分组' }).click()
@@ -130,7 +131,7 @@ describe('采集人员的姓名与分组', () => {
   it('异步人员查询更新补录展示，不使用候选草稿冒充已有人员', async () => {
     const qc = seedCapture(cluster({ known_person_id: 'p1', known_name: '张三' }))
     requests.get.mockImplementation(() => new Promise(() => {}))
-    const screen = await render(form(qc, <CapturePage />))
+    const screen = await render(form(qc, <CaptureWorkspace mode='file' />))
     await expect.element(screen.getByText('分组：加载中…')).toBeVisible()
     qc.setQueryData(['people'], [person({ name: '王五', role: 'leader' })])
     await expect.element(screen.getByText('姓名：王五')).toBeVisible()
@@ -139,7 +140,7 @@ describe('采集人员的姓名与分组', () => {
 
   it('切换采集会话后相同簇编号不会沿用上一人的姓名', async () => {
     const qc = seedCapture(cluster())
-    const screen = await render(form(qc, <CapturePage />))
+    const screen = await render(form(qc, <CaptureWorkspace mode='file' />))
     await screen.getByRole('textbox', { name: '姓名', exact: true }).fill('上一位')
     const second = capture(cluster(), 'session-b')
     qc.setQueryData(['capture', 'session-b'], second)
@@ -149,18 +150,15 @@ describe('采集人员的姓名与分组', () => {
 })
 
 describe('人员管理的姓名与分组', () => {
-  it('新建人员分别输入姓名、选择分组，trim 后保持 role API', async () => {
+  it('人员列表仅展示管理与添加入口，不再直接新建空人员', async () => {
     const qc = client()
     qc.setQueryData(['people'], [])
     const screen = await render(form(qc, <People />))
     expect(document.querySelector('thead')?.textContent).toContain('分组')
-    await screen.getByRole('textbox', { name: '姓名', exact: true }).fill('   ')
-    await expect.element(screen.getByRole('button', { name: '新建', exact: true })).toBeDisabled()
-    await screen.getByRole('textbox', { name: '姓名', exact: true }).fill(' 王五 ')
-    await screen.getByRole('combobox', { name: '分组', exact: true }).click()
-    await screen.getByRole('option', { name: '老板', exact: true }).click()
-    await screen.getByRole('button', { name: '新建', exact: true }).click()
-    await expect.poll(() => requests.post.mock.calls).toEqual([['/people', { name: '王五', role: 'boss' }]])
+    await expect.element(screen.getByRole('link', { name: '添加人员' })).toHaveAttribute('href', '/people/add')
+    expect(document.querySelector('#new-person-name')).toBeNull()
+    expect(document.querySelector('#new-person-group')).toBeNull()
+    expect(requests.post).not.toHaveBeenCalled()
   })
 
   it('调整分组仅提交 role，显式改名只提交 name', async () => {

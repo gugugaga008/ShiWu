@@ -23,6 +23,8 @@ import { Route as errors500RouteImport } from './routes/(errors)/500'
 import { Route as errors404RouteImport } from './routes/(errors)/404'
 import { Route as errors403RouteImport } from './routes/(errors)/403'
 import { Route as errors401RouteImport } from './routes/(errors)/401'
+import { Route as AuthenticatedPeopleIndexRouteImport } from './routes/_authenticated/people.index'
+import { Route as AuthenticatedPeopleAddRouteImport } from './routes/_authenticated/people.add'
 
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
@@ -93,6 +95,17 @@ const errors401Route = errors401RouteImport.update({
   path: '/401',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedPeopleIndexRoute =
+  AuthenticatedPeopleIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedPeopleRoute,
+  } as any)
+const AuthenticatedPeopleAddRoute = AuthenticatedPeopleAddRouteImport.update({
+  id: '/add',
+  path: '/add',
+  getParentRoute: () => AuthenticatedPeopleRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
@@ -102,12 +115,14 @@ export interface FileRoutesByFullPath {
   '/500': typeof errors500Route
   '/503': typeof errors503Route
   '/capture': typeof AuthenticatedCaptureRoute
-  '/people': typeof AuthenticatedPeopleRoute
+  '/people': typeof AuthenticatedPeopleRouteWithChildren
   '/rules': typeof AuthenticatedRulesRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/sources': typeof AuthenticatedSourcesRoute
   '/stats': typeof AuthenticatedStatsRoute
   '/timeline': typeof AuthenticatedTimelineRoute
+  '/people/add': typeof AuthenticatedPeopleAddRoute
+  '/people/': typeof AuthenticatedPeopleIndexRoute
 }
 export interface FileRoutesByTo {
   '/401': typeof errors401Route
@@ -116,13 +131,14 @@ export interface FileRoutesByTo {
   '/500': typeof errors500Route
   '/503': typeof errors503Route
   '/capture': typeof AuthenticatedCaptureRoute
-  '/people': typeof AuthenticatedPeopleRoute
   '/rules': typeof AuthenticatedRulesRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/sources': typeof AuthenticatedSourcesRoute
   '/stats': typeof AuthenticatedStatsRoute
   '/timeline': typeof AuthenticatedTimelineRoute
   '/': typeof AuthenticatedIndexRoute
+  '/people/add': typeof AuthenticatedPeopleAddRoute
+  '/people': typeof AuthenticatedPeopleIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -133,13 +149,15 @@ export interface FileRoutesById {
   '/(errors)/500': typeof errors500Route
   '/(errors)/503': typeof errors503Route
   '/_authenticated/capture': typeof AuthenticatedCaptureRoute
-  '/_authenticated/people': typeof AuthenticatedPeopleRoute
+  '/_authenticated/people': typeof AuthenticatedPeopleRouteWithChildren
   '/_authenticated/rules': typeof AuthenticatedRulesRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/sources': typeof AuthenticatedSourcesRoute
   '/_authenticated/stats': typeof AuthenticatedStatsRoute
   '/_authenticated/timeline': typeof AuthenticatedTimelineRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
+  '/_authenticated/people/add': typeof AuthenticatedPeopleAddRoute
+  '/_authenticated/people/': typeof AuthenticatedPeopleIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -157,6 +175,8 @@ export interface FileRouteTypes {
     | '/sources'
     | '/stats'
     | '/timeline'
+    | '/people/add'
+    | '/people/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/401'
@@ -165,13 +185,14 @@ export interface FileRouteTypes {
     | '/500'
     | '/503'
     | '/capture'
-    | '/people'
     | '/rules'
     | '/settings'
     | '/sources'
     | '/stats'
     | '/timeline'
     | '/'
+    | '/people/add'
+    | '/people'
   id:
     | '__root__'
     | '/_authenticated'
@@ -188,6 +209,8 @@ export interface FileRouteTypes {
     | '/_authenticated/stats'
     | '/_authenticated/timeline'
     | '/_authenticated/'
+    | '/_authenticated/people/add'
+    | '/_authenticated/people/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -299,12 +322,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof errors401RouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/people/': {
+      id: '/_authenticated/people/'
+      path: '/'
+      fullPath: '/people/'
+      preLoaderRoute: typeof AuthenticatedPeopleIndexRouteImport
+      parentRoute: typeof AuthenticatedPeopleRoute
+    }
+    '/_authenticated/people/add': {
+      id: '/_authenticated/people/add'
+      path: '/add'
+      fullPath: '/people/add'
+      preLoaderRoute: typeof AuthenticatedPeopleAddRouteImport
+      parentRoute: typeof AuthenticatedPeopleRoute
+    }
   }
 }
 
+interface AuthenticatedPeopleRouteChildren {
+  AuthenticatedPeopleAddRoute: typeof AuthenticatedPeopleAddRoute
+  AuthenticatedPeopleIndexRoute: typeof AuthenticatedPeopleIndexRoute
+}
+
+const AuthenticatedPeopleRouteChildren: AuthenticatedPeopleRouteChildren = {
+  AuthenticatedPeopleAddRoute: AuthenticatedPeopleAddRoute,
+  AuthenticatedPeopleIndexRoute: AuthenticatedPeopleIndexRoute,
+}
+
+const AuthenticatedPeopleRouteWithChildren =
+  AuthenticatedPeopleRoute._addFileChildren(AuthenticatedPeopleRouteChildren)
+
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedCaptureRoute: typeof AuthenticatedCaptureRoute
-  AuthenticatedPeopleRoute: typeof AuthenticatedPeopleRoute
+  AuthenticatedPeopleRoute: typeof AuthenticatedPeopleRouteWithChildren
   AuthenticatedRulesRoute: typeof AuthenticatedRulesRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedSourcesRoute: typeof AuthenticatedSourcesRoute
@@ -315,7 +365,7 @@ interface AuthenticatedRouteRouteChildren {
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedCaptureRoute: AuthenticatedCaptureRoute,
-  AuthenticatedPeopleRoute: AuthenticatedPeopleRoute,
+  AuthenticatedPeopleRoute: AuthenticatedPeopleRouteWithChildren,
   AuthenticatedRulesRoute: AuthenticatedRulesRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedSourcesRoute: AuthenticatedSourcesRoute,

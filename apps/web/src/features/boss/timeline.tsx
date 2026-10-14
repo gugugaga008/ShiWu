@@ -68,7 +68,7 @@ export function Timeline() {
       <div className='mb-4 flex flex-wrap items-center gap-2'>
         <FilterSelect value={person} onChange={setPerson} placeholder='全部人员' options={people.map((p) => ({ value: p.person_id, label: p.name }))} />
         <FilterSelect value={role} onChange={setRole} placeholder='全部分组' options={roleOptions} width='w-32' />
-        <FilterSelect value={source} onChange={setSource} placeholder='全部视频源' options={sources.map((s) => ({ value: s, label: s }))} width='w-32' />
+        <FilterSelect value={source} onChange={setSource} placeholder='全部画面源' options={sources.map((s) => ({ value: s, label: s }))} width='w-32' />
         <Input type='date' className='w-40' value={date} onChange={(e) => setDate(e.target.value)} />
         <FilterSelect value={kinds === 'action,left' ? '' : kinds} onChange={(v) => setKinds(v || 'action,left')} placeholder='触发 + 离开'
           options={[{ value: 'action', label: '只看触发' }, { value: 'left', label: '只看离开' }]} width='w-32' />

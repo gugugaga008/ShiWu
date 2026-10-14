@@ -243,14 +243,14 @@ async function startMonitoring(src) {
   if (!src && (settings.default_sources || []).length) {
     // 多路默认源：交给服务端一次启动
     const st = await backend.json('/boss/pipeline/start-defaults', { method: 'POST' }).catch((e) => ({ start_errors: [{ error: e.message }] }))
-    for (const e of st.start_errors || []) toast('视频源启动失败', `${e.name || ''} ${e.error}`)
+    for (const e of st.start_errors || []) toast('画面源启动失败', `${e.name || ''} ${e.error}`)
     log(`[monitor] 已启动默认源 ${(st.pipelines || []).map((p) => p.name).join('、')}`)
     if ((st.pipelines || []).some((p) => isPush(p.source))) openCameraWindow()
     else closeCameraWindow()
     return
   }
   src = src || settings.default_source
-  if (!src) return log('[monitor] 未设置默认视频源，等待在管理界面选择')
+  if (!src) return log('[monitor] 未设置默认画面源，等待在设置中选择')
   const body = { ...src, loop: true }
   if (src.kind === 'camera' && !String(src.uri).startsWith('push://')) {
     body.width = settings.camera_width
@@ -260,7 +260,7 @@ async function startMonitoring(src) {
   if (!r.ok) {
     const msg = (await r.json().catch(() => ({}))).detail || r.status
     log(`[monitor] 启动失败：${msg}`)
-    toast('视频源启动失败', String(msg))
+    toast('画面源启动失败', String(msg))
     return
   }
   log(`[monitor] 已启动 ${src.kind}:${src.uri}`)
@@ -405,10 +405,10 @@ async function boot() {
   const autostarted = process.argv.includes('--autostart')
   if (env('SHIWU_START_HIDDEN', 'SHIWU_START_HIDDEN') !== '1' && !autostarted) openMain()
   if (settings.auto_monitor && !env('SHIWU_AUTOSTART_VIDEO', 'SHIWU_AUTOSTART_VIDEO')) await startMonitoring()
-  // E2E：启动后自动开一路视频源
+  // E2E：启动后自动开一路画面源
   if (env('SHIWU_AUTOSTART_VIDEO', 'SHIWU_AUTOSTART_VIDEO')) {
     await backend.json('/boss/pipeline/start', { method: 'POST', body: JSON.stringify({ kind: 'file', uri: env('SHIWU_AUTOSTART_VIDEO', 'SHIWU_AUTOSTART_VIDEO'), loop: false }) })
-    log(`[e2e] 已启动视频源 ${env('SHIWU_AUTOSTART_VIDEO', 'SHIWU_AUTOSTART_VIDEO')}`)
+    log(`[e2e] 已启动画面源 ${env('SHIWU_AUTOSTART_VIDEO', 'SHIWU_AUTOSTART_VIDEO')}`)
   }
 }
 

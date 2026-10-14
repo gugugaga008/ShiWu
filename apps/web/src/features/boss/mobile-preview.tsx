@@ -69,7 +69,7 @@ export function MobilePreview({ source, disabled }: { source: string; disabled?:
       setDisconnected(true)
       setError('')
     } catch {
-      toast.error('断开预览失败；请重试，或停止该视频源。链接最迟在 10 分钟后失效。')
+      toast.error('断开预览失败；请重试，或停止该画面源。链接最迟在 10 分钟后失效。')
     } finally {
       pending.current = false
       setBusy(false)
@@ -108,7 +108,7 @@ export function MobilePreview({ source, disabled }: { source: string; disabled?:
       </Button>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>扫码查看「{source}」</DialogTitle>
+          <DialogTitle className='flex items-center gap-2'><QrCode className='size-5' aria-hidden />扫码查看「{source}」</DialogTitle>
           <DialogDescription>
             手机与电脑连接同一 Wi-Fi，扫码后在手机浏览器打开。关闭弹窗或切换页面不会断开，电脑不显示实时画面。
           </DialogDescription>
@@ -116,7 +116,7 @@ export function MobilePreview({ source, disabled }: { source: string; disabled?:
         <div className='grid justify-items-center gap-4'>
           {busy && <p role='status'>正在准备手机预览…</p>}
           {error && <p role='alert' className='text-sm text-destructive'>{error}</p>}
-          {disabled ? <p role='status'>视频源已结束，手机预览已失效。</p> : session && !expired && !busy && (
+          {disabled ? <p role='status'>画面源已结束，手机预览已失效。</p> : session && !expired && !busy && (
             <>
               <img src={session.qr} alt='手机预览二维码' className='size-64 max-w-full rounded bg-white p-2' />
               <p className='text-sm text-muted-foreground'>有效期至 {new Date(session.expires_at * 1000).toLocaleTimeString('zh-CN', { hour12: false })}</p>
@@ -137,7 +137,7 @@ export function MobilePreview({ source, disabled }: { source: string; disabled?:
             {session && <Button variant='destructive' disabled={busy} onClick={() => void disconnect()}>断开手机预览</Button>}
             <Button variant='outline' onClick={() => setOpen(false)}>隐藏二维码</Button>
           </div>
-          <p className='text-xs text-muted-foreground'>链接最长有效 10 分钟，不会因重开弹窗而续期。主动断开会结束该路所有手机连接；到期、停止或替换视频源后也会失效。不要分享二维码，仅在可信局域网使用；连接失败请检查防火墙和 Wi-Fi 设备隔离。</p>
+          <p className='text-xs text-muted-foreground'>链接最长有效 10 分钟，不会因重开弹窗而续期。主动断开会结束该路所有手机连接；到期、停止或替换画面源后也会失效。不要分享二维码，仅在可信局域网使用；连接失败请检查防火墙和 Wi-Fi 设备隔离。</p>
         </div>
       </DialogContent>
     </Dialog>
