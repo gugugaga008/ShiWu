@@ -30,7 +30,8 @@ def capture_api(monkeypatch, tmp_path):
     members = {"p1": member}
     runtime = SimpleNamespace(captures={session.id: session}, members=Mock(return_value=members),
                               gallery=SimpleNamespace(add=Mock(), count=Mock(return_value={})),
-                              name_of=lambda pid: members[pid]["name"], invalidate_people=Mock())
+                              name_of=lambda pid: members[pid]["name"], invalidate_people=Mock(),
+                              save_portrait=Mock())
     monkeypatch.setattr(routes, "runtime", runtime)
 
     async def create(name, gid, role):

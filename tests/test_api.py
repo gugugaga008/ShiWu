@@ -104,6 +104,7 @@ def test_monitor_pause_resume_and_test_action(server):
     assert c.post("/monitor/resume").json()["paused"] is False
     ev = c.post("/monitor/test", json={"role": "boss", "name": "演示"}).json()
     assert [a["type"] for a in ev["actions"]] == ["notify"]
+    assert ev.get("snapshot_url")
     kinds = [r["kind"] for r in c.get("/eventlog", params={"limit": 5}).json()]
     assert kinds[:3] == ["action", "monitor_resumed", "monitor_paused"]
     assert c.post("/monitor/test", json={"role": "staff"}).status_code == 404
@@ -140,6 +141,7 @@ def test_people_create_update_photos(server):
     assert r["accepted"] == 1 and r["templates"] == 1
     row = [x for x in c.get("/people").json() if x["person_id"] == pid][0]
     assert row["role"] == "leader" and row["role_label"] == "领导"
+    assert row.get("joined_at")
     d = c.delete(f"/people/{pid}").json()
     assert d["success"] and d["templates_removed"] == 1 and d["verify"]["gallery_remaining"] == 0
     assert pid not in [x["person_id"] for x in c.get("/people").json()]

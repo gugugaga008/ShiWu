@@ -536,13 +536,14 @@ def monitor_resume(source: str = "api"):
 
 
 def _test_snapshot_jpeg() -> Optional[bytes]:
-    """生成带「测试」二字的小图；无中文字体时退回 TEST。"""
+    """生成带时间戳的测试快照；无中文字体时退回英文。"""
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
     try:
         import io
         from PIL import Image, ImageDraw, ImageFont
-        img = Image.new("RGB", (320, 240), (32, 32, 40))
+        img = Image.new("RGB", (960, 540), (18, 18, 22))
         draw = ImageDraw.Draw(img)
-        font = None
+        font = title = small = None
         for fp in (
             "/System/Library/Fonts/PingFang.ttc",
             "/System/Library/Fonts/Hiragino Sans GB.ttc",
@@ -550,21 +551,27 @@ def _test_snapshot_jpeg() -> Optional[bytes]:
             "C:\\Windows\\Fonts\\msyh.ttc",
         ):
             try:
-                font = ImageFont.truetype(fp, 72)
+                title = ImageFont.truetype(fp, 64)
+                small = ImageFont.truetype(fp, 28)
+                font = title
                 break
             except OSError:
                 continue
-        text = "测试" if font else "TEST"
-        bbox = draw.textbbox((0, 0), text, font=font)
-        x = (320 - (bbox[2] - bbox[0])) // 2
-        y = (240 - (bbox[3] - bbox[1])) // 2 - bbox[1]
-        draw.text((x, y), text, fill=(255, 255, 255), font=font)
+        headline = "测试动作" if font else "TEST ACTION"
+        draw.rounded_rectangle((40, 40, 920, 500), radius=24, outline=(245, 158, 11), width=3)
+        bbox = draw.textbbox((0, 0), headline, font=title)
+        x = (960 - (bbox[2] - bbox[0])) // 2
+        draw.text((x, 190), headline, fill=(250, 250, 250), font=title)
+        sb = draw.textbbox((0, 0), stamp, font=small)
+        sx = (960 - (sb[2] - sb[0])) // 2
+        draw.text((sx, 290), stamp, fill=(251, 191, 36), font=small)
         buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=85)
+        img.save(buf, format="JPEG", quality=88)
         return buf.getvalue()
     except Exception:  # noqa: BLE001
-        img = np.full((240, 320, 3), 40, np.uint8)
-        cv2.putText(img, "TEST", (90, 140), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (255, 255, 255), 2)
+        img = np.full((540, 960, 3), 22, np.uint8)
+        cv2.putText(img, "TEST ACTION", (250, 250), cv2.FONT_HERSHEY_SIMPLEX, 1.6, (255, 255, 255), 3)
+        cv2.putText(img, stamp, (280, 330), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (251, 191, 36), 2)
         ok, buf = cv2.imencode(".jpg", img)
         return buf.tobytes() if ok else None
 
@@ -596,6 +603,8 @@ def monitor_test(req: TestAction):
                          actions=rule["actions"], source="test", snapshot=ev.get("snapshot"),
                          detail={"event_id": ev["id"]})
     runtime._on_action(ev)
+    if ev.get("snapshot"):
+        ev["snapshot_url"] = f"/boss/snapshots/{ev['snapshot']}.jpg"
     return ev
 
 

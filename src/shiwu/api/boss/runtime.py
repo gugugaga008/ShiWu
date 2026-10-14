@@ -261,7 +261,7 @@ class BossRuntime:
         safe = Path(str(pid)).name
         return data_dir() / "portraits" / f"{safe}.jpg"
 
-    def save_portrait(self, pid: str, image, face=None, size: int = 128) -> None:
+    def save_portrait(self, pid: str, image, face=None, size: int = 384) -> None:
         if image is None or getattr(image, "size", 0) == 0:
             return
         h, w = image.shape[:2]
@@ -402,6 +402,7 @@ class BossRuntime:
         self.runners[name] = runner
         self.rule_engine.reset(name)
         runner.pipeline.start(background=True)
+        self._remember_source(runner.source)
         self._broadcast({"type": "pipeline", "source": runner.source, "sources": self._sources_brief()})
         return self.pipeline_status()
 
@@ -466,7 +467,8 @@ class BossRuntime:
         return None
 
     # ---------- 设置 ----------
-    DEFAULT_SETTINGS = {"default_source": None, "default_sources": [], "autostart": False, "auto_monitor": False,
+    DEFAULT_SETTINGS = {"default_source": None, "default_sources": [], "saved_sources": [],
+                        "autostart": False, "auto_monitor": False,
                         "adaptive": True, "active_fps": 8, "idle_fps": 2, "camera_width": 1280,
                         "camera_height": 720, "max_sources": 4,
                         "snapshot_enabled": True, "snapshot_retention_days": 30,
@@ -502,9 +504,23 @@ class BossRuntime:
         c = self.snapshots.cipher
         return c[1](raw).decode() if c else ""
 
+    def _remember_source(self, source: dict) -> None:
+        """画面源启动成功后记入目录，供「默认画面源」按名称勾选。"""
+        try:
+            name = (source or {}).get("name")
+            if not name:
+                return
+            d = self.settings()
+            item = {k: source.get(k) for k in ("name", "kind", "uri", "loop", "width", "height")}
+            others = [s for s in (d.get("saved_sources") or []) if s.get("name") != name]
+            d["saved_sources"] = others + [item]
+            (data_dir() / "settings.json").write_text(json.dumps(d, ensure_ascii=False, indent=2), "utf-8")
+        except Exception:  # noqa: BLE001
+            logger.exception("remember source failed")
+
     def save_settings(self, patch: dict) -> dict:
         d = self.settings()
-        d.update({k: v for k, v in patch.items() if k in self.DEFAULT_SETTINGS})
+        d.update({k: v for k, v in patch.items() if k in self.DEFAULT_SETTINGS and k != "saved_sources"})
         if patch.get("smtp_password") is not None:   # 授权码：加密存储；空字符串 = 清除
             import base64
             pw = str(patch["smtp_password"])

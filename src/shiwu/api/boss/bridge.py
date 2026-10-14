@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -25,6 +26,17 @@ from ...services.attendance_service import AttendanceService
 logger = logging.getLogger(__name__)
 
 _DB = DATA_DIR / "attendance.db"
+
+
+def _joined_at_iso(value) -> Optional[str]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat(timespec="seconds")
+    text = str(value).strip()
+    if " " in text and "T" not in text[:20]:
+        text = text.replace(" ", "T", 1)
+    return text or None
 
 
 # ------------------------------------------------------------------ 同步侧
@@ -42,7 +54,7 @@ def members_snapshot() -> Dict[str, dict]:
         return {}
     try:
         rows = con.execute(
-            "SELECT id, person_id, group_id, name, role, email, is_active "
+            "SELECT id, person_id, group_id, name, role, email, is_active, joined_at "
             "FROM attendance_members "
             "WHERE is_active = 1 AND (is_deleted IS NULL OR is_deleted = 0) "
             "ORDER BY name COLLATE NOCASE"
@@ -57,6 +69,7 @@ def members_snapshot() -> Dict[str, dict]:
     return {
         r[1]: {"id": r[0], "person_id": r[1], "group_id": r[2], "name": r[3],
                "role": r[4], "email": r[5], "is_active": bool(r[6]),
+               "joined_at": _joined_at_iso(r[7]),
                "has_face_data": r[1] in enrolled, "remote_id": None}
         for r in rows
     }
@@ -65,7 +78,7 @@ def members_snapshot() -> Dict[str, dict]:
 # ------------------------------------------------------------------ 异步侧
 def _member_dict(m, has_face_data: bool) -> dict:
     return {"id": m.id, "person_id": m.person_id, "group_id": m.group_id, "name": m.name,
-            "role": m.role, "email": m.email, "joined_at": m.joined_at,
+            "role": m.role, "email": m.email, "joined_at": _joined_at_iso(m.joined_at),
             "is_active": m.is_active, "has_face_data": has_face_data,
             "remote_id": getattr(m, "remote_id", None)}
 
