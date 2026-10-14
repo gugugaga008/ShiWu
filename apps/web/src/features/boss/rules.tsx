@@ -13,8 +13,9 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import { api, errMsg, ROLE_LABEL, ROLE_VARIANT } from '@/lib/api'
+import { api, errMsg, ROLE_LABEL, ROLE_VARIANT, withToken } from '@/lib/api'
 import { Page } from './page'
+import { SnapshotDialog } from './snapshot-dialog'
 
 type Action = { type: string; params: Record<string, string | number | boolean> }
 type TimeWindow = { days: number[]; start: string; end: string }
@@ -162,9 +163,10 @@ function RuleCard({ r, types, people, sources, onChange, onDelete }: {
   const has = (t: string) => r.actions.find((a) => a.type === t)
   const toggle = (t: string, on: boolean) =>
     onChange({ ...r, actions: on ? [...r.actions, { type: t, params: {} }] : r.actions.filter((a) => a.type !== t) })
+  const [testResult, setTestResult] = useState<{ ts?: number; snapshot_url?: string; actions?: { type: string }[]; name?: string; rule_id?: string } | null>(null)
   const test = useMutation({
     mutationFn: async () => (await api.post('/monitor/test', { rule_id: r.id, role: r.role ?? 'boss', name: '测试' })).data,
-    onSuccess: () => toast.success('已发出测试动作（桌面端执行；邮件由服务端发送）'),
+    onSuccess: (data) => setTestResult(data),
     onError: (e) => toast.error(errMsg(e)),
   })
   const who =
@@ -340,6 +342,15 @@ function RuleCard({ r, types, people, sources, onChange, onDelete }: {
           <Trash2 /> 删除
         </Button>
       </CardFooter>
+      <SnapshotDialog
+        open={!!testResult}
+        onOpenChange={(open) => { if (!open) setTestResult(null) }}
+        title={`测试动作 · ${testResult?.name ?? '测试'}`}
+        timeLabel={testResult?.ts ? new Date(testResult.ts * 1000).toLocaleString('zh-CN', { hour12: false }) : undefined}
+        description={`${testResult?.rule_id ?? r.id} · ${(testResult?.actions ?? r.actions).map((a) => a.type).join('、') || '无动作'}`}
+        imageSrc={testResult?.snapshot_url ? withToken(testResult.snapshot_url.replace(/^\/boss/, '')) : null}
+        imageAlt='测试快照'
+      />
     </Card>
   )
 }

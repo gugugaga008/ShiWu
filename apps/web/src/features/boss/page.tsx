@@ -1,4 +1,5 @@
 import { BarChart3, History, LayoutDashboard, MonitorPlay, Settings, SlidersHorizontal, UserRoundPlus, Users, type LucideIcon } from 'lucide-react'
+import { Logo } from '@/assets/logo'
 import { useSettingsDialog } from '@/hooks/use-settings-dialog'
 import { Button } from '@/components/ui/button'
 import { Search } from '@/components/search'
@@ -22,7 +23,7 @@ export function Page({ title, desc, children, icon }: { title: string; desc?: st
   return (
     <>
       <Header>
-        <div className='font-semibold'>识务</div>
+        <div className='flex items-center gap-2 font-semibold'><Logo className='size-5 text-amber-700 dark:text-amber-400' />识务</div>
         <div className='ms-auto flex items-center gap-2'>
           <Search />
           <Button variant='ghost' size='icon' aria-label='打开设置' onClick={() => useSettingsDialog.getState().setOpen(true)}><Settings /></Button>

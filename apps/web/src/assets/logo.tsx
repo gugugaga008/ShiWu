@@ -1,24 +1,22 @@
 import { type SVGProps } from 'react'
 import { cn } from '@/lib/utils'
 
+/** 识务标记：雷达扫视，区别于通用人脸扫描图标。 */
 export function Logo({ className, ...props }: SVGProps<SVGSVGElement>) {
   return (
     <svg
-      id='shadcn-admin-logo'
-      viewBox='0 0 24 24'
+      viewBox='0 0 32 32'
       xmlns='http://www.w3.org/2000/svg'
-      height='24'
-      width='24'
       fill='none'
-      stroke='currentColor'
-      strokeWidth='2'
-      strokeLinecap='round'
-      strokeLinejoin='round'
       className={cn('size-6', className)}
+      aria-hidden
       {...props}
     >
-      <title>Shadcn-Admin</title>
-      <path d='M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3' />
+      <title>识务</title>
+      <circle cx='16' cy='16' r='11' stroke='currentColor' strokeWidth='1.8' />
+      <path d='M16 5.8a10.2 10.2 0 0 1 10.2 10.2' stroke='currentColor' strokeWidth='1.8' strokeLinecap='round' />
+      <path d='M16 16l7.2-7.2' stroke='currentColor' strokeWidth='1.8' strokeLinecap='round' />
+      <circle cx='16' cy='16' r='3.1' fill='currentColor' />
     </svg>
   )
 }

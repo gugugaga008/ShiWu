@@ -3,12 +3,12 @@ import { useQuery } from '@tanstack/react-query'
 import { DoorOpen, ImageOff, Zap } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { api, ROLE_LABEL, ROLE_VARIANT, withToken } from '@/lib/api'
 import { FilterSelect, roleOptions, usePeople, useSourceNames } from './filters'
 import { fmtTime } from './live'
 import { Page } from './page'
+import { SnapshotDialog } from './snapshot-dialog'
 
 type Item = {
   id: number
@@ -87,10 +87,10 @@ export function Timeline() {
                 {list.map((it) => (
                   <li key={it.id} className='relative'>
                     <span className={`absolute -start-[27px] top-3 flex size-4 items-center justify-center rounded-full ring-4 ring-background ${it.kind === 'action' ? 'bg-destructive' : 'bg-emerald-500'}`} />
-                    <Card className='flex-row items-center gap-4 p-3'>
+                    <Card className={`flex-row items-center gap-4 p-3 ${it.kind === 'action' ? 'cursor-pointer' : ''}`} onClick={() => it.kind === 'action' && setOpen(it)}>
                       {it.kind === 'action' ? (
                         it.snapshot_url ? (
-                          <button type='button' onClick={() => setOpen(it)} className='shrink-0 overflow-hidden rounded-md border'>
+                          <button type='button' onClick={(event) => { event.stopPropagation(); setOpen(it) }} className='shrink-0 overflow-hidden rounded-md border'>
                             <img src={snap(it.snapshot_url)} alt='快照' loading='lazy' className='h-20 w-36 object-cover transition hover:scale-105' />
                           </button>
                         ) : (
@@ -134,15 +134,14 @@ export function Timeline() {
           ))}
         </div>
       )}
-      <Dialog open={!!open} onOpenChange={(o) => !o && setOpen(null)}>
-        <DialogContent className='sm:max-w-4xl'>
-          <DialogHeader>
-            <DialogTitle>{open?.name} · {open && new Date(open.ts * 1000).toLocaleString('zh-CN', { hour12: false })}</DialogTitle>
-            <DialogDescription>{open?.source} · 规则 {open?.rule_id}</DialogDescription>
-          </DialogHeader>
-          {open?.snapshot_url && <img src={snap(open.snapshot_url)} alt='快照' className='w-full rounded-md' />}
-        </DialogContent>
-      </Dialog>
+      <SnapshotDialog
+        open={!!open}
+        onOpenChange={(o) => { if (!o) setOpen(null) }}
+        title={open?.name ?? '快照'}
+        timeLabel={open ? new Date(open.ts * 1000).toLocaleString('zh-CN', { hour12: false }) : undefined}
+        description={[open?.source, open?.rule_id ? `规则 ${open.rule_id}` : '', (open?.actions ?? []).map((a) => ACTION_LABEL[a.type] ?? a.type).join('、')].filter(Boolean).join(' · ')}
+        imageSrc={open?.snapshot_url ? snap(open.snapshot_url) : null}
+      />
     </Page>
   )
 }

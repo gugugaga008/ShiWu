@@ -37,7 +37,7 @@ async function renderRules(rules: Rule[] = [rule()]) {
 
 beforeEach(() => {
   requests.put.mockResolvedValue({ data: {} })
-  requests.post.mockResolvedValue({ data: {} })
+  requests.post.mockResolvedValue({ data: { ts: 1710000000, snapshot_url: '/boss/snapshots/x.jpg', actions: [{ type: 'notify' }], name: '测试', rule_id: 'boss' } })
 })
 afterEach(async () => {
   await cleanup()
@@ -123,6 +123,10 @@ describe('规则设置单列与行为回归', () => {
     const screen = await renderRules()
     await screen.getByRole('button', { name: '测试动作', exact: true }).click()
     await expect.poll(() => requests.post.mock.calls[0]).toEqual(['/monitor/test', { rule_id: 'boss', role: 'boss', name: '测试' }])
+    await expect.element(screen.getByRole('dialog')).toBeVisible()
+    await expect.element(screen.getByRole('heading', { name: '测试动作 · 测试' })).toBeVisible()
+    await userEvent.keyboard('{Escape}')
+    await expect.element(screen.getByRole('dialog')).not.toBeInTheDocument()
     await screen.getByRole('button', { name: '删除', exact: true }).click()
     await expect.element(screen.getByText('识别到老板', { exact: true })).not.toBeInTheDocument()
     await screen.getByRole('button', { name: '保存规则', exact: true }).click()

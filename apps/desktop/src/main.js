@@ -112,14 +112,15 @@ function hideCover() {
 
 function toast(title, body) {
   const { workArea } = screen.getPrimaryDisplay()
-  const w = 380, h = 120
+  const w = 400, h = 150
+  const time = new Date().toLocaleString('zh-CN', { hour12: false })
   const win = new BrowserWindow({
     x: workArea.x + workArea.width - w - 16, y: workArea.y + 16, width: w, height: h, frame: false,
     transparent: true, alwaysOnTop: true, skipTaskbar: true, focusable: false, resizable: false, show: false,
     webPreferences: secureWeb,
   })
   win.setAlwaysOnTop(true, 'screen-saver')
-  win.loadFile(path.join(__dirname, 'windows', 'toast.html'), { query: { title, body } })
+  win.loadFile(path.join(__dirname, 'windows', 'toast.html'), { query: { title, body, time } })
   win.once('ready-to-show', () => win.showInactive())
   setTimeout(() => !win.isDestroyed() && win.close(), Number(env('SHIWU_TOAST_MS', 'SHIWU_TOAST_MS') || 8000))
 }
