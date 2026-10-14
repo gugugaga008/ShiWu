@@ -67,7 +67,7 @@ export function Timeline() {
     <Page title='时间线' desc='按时间回看每次触发与触发快照（快照加密保存在本机）'>
       <div className='mb-4 flex flex-wrap items-center gap-2'>
         <FilterSelect value={person} onChange={setPerson} placeholder='全部人员' options={people.map((p) => ({ value: p.person_id, label: p.name }))} />
-        <FilterSelect value={role} onChange={setRole} placeholder='全部角色' options={roleOptions} width='w-32' />
+        <FilterSelect value={role} onChange={setRole} placeholder='全部分组' options={roleOptions} width='w-32' />
         <FilterSelect value={source} onChange={setSource} placeholder='全部视频源' options={sources.map((s) => ({ value: s, label: s }))} width='w-32' />
         <Input type='date' className='w-40' value={date} onChange={(e) => setDate(e.target.value)} />
         <FilterSelect value={kinds === 'action,left' ? '' : kinds} onChange={(v) => setKinds(v || 'action,left')} placeholder='触发 + 离开'

@@ -5,13 +5,13 @@ import asyncio
 import json
 import logging
 import time
-from typing import Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional
 
 import cv2
 import numpy as np
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from ...enroll import Candidate, EnrollmentService, QualityConfig, choose_templates
 from ...rules import ACTION_TYPES
@@ -23,6 +23,7 @@ from .mobile_preview import SECURITY_HEADERS
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/boss", tags=["boss"])
 GROUP_NAME = "默认组"
+PersonName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
 
 
 # ------------------------------------------------------------------ 状态
@@ -276,9 +277,9 @@ def capture_split(sid: str, cid: int, req: SplitReq):
 
 class ConfirmReq(BaseModel):
     action: Literal["enroll", "ignore"] = "enroll"
-    name: Optional[str] = None
+    name: Optional[PersonName] = None
     role: Optional[str] = "boss"
-    person_id: Optional[str] = None   # 提供则补录到已有人员
+    person_id: Optional[str] = None   # 提供则补录到已有人员；省略姓名/分组时保持原值
     max_templates: int = Field(5, ge=1, le=10)
 
 
@@ -302,6 +303,16 @@ async def capture_confirm(sid: str, cid: int, req: ConfirmReq):
         cl.status, cl.role = "ignored", "ignore"
         return s.cluster_dict(cl)
 
+    m = None
+    if req.person_id:
+        m = runtime.members(force=True).get(req.person_id)
+        if not m:
+            raise HTTPException(404, "人员不存在")
+        if not (req.name or (m.get("name") or "").strip()):
+            raise HTTPException(400, "请先在人员管理中填写姓名")
+    elif not req.name:
+        raise HTTPException(400, "请填写姓名，分组不能代替姓名")
+
     cands = []
     for i in cl.sample_ids:
         smp = s.samples[i]
@@ -320,28 +331,28 @@ async def capture_confirm(sid: str, cid: int, req: ConfirmReq):
                 reasons[k] = reasons.get(k, 0) + 1
         raise HTTPException(400, {"message": "该人物没有符合注册质量门槛的照片", "reasons": reasons})
 
-    gid = await _group_id()
     if req.person_id:
         pid = req.person_id
-        m = runtime.members(force=True).get(pid)
-        if not m:
-            raise HTTPException(404, "人员不存在")
-        upd = {k: v for k, v in (("role", req.role), ("name", req.name)) if v}
+        gid = m["group_id"]
+        # 兼容显式改名/改分组；仅传 person_id 的补录不得改变身份信息。
+        upd = {k: v for k, v in (("role", req.role), ("name", req.name))
+               if k in req.model_fields_set and v}
         if upd:
-            await bridge.update_member(pid, upd)
-            m = runtime.members(force=True).get(pid) or m
+            updated = await bridge.update_member(pid, upd)
+            if updated is None:
+                raise HTTPException(404, "人员不存在")
+            m = updated
     else:
-        if not req.name:
-            raise HTTPException(400, "请填写姓名")
+        gid = await _group_id()
         m = await bridge.create_member(req.name, gid, req.role)
         pid = m["person_id"]
     if not m.get("has_face_data"):
         best = chosen[0]
         await _enroll_primary(gid, pid, s.frame_image(s.samples[best.sample_id].frame_id), best.face)
-    name = req.name or (m.get("name") if m else None)
+    name = m["name"]
     for cd in chosen:
-        runtime.gallery.add(pid, cd.embedding, name=name or "", quality=cd.quality.metrics, source=cd.source)
-    cl.status, cl.person_id, cl.name, cl.role = "enrolled", pid, name, req.role
+        runtime.gallery.add(pid, cd.embedding, name=name, quality=cd.quality.metrics, source=cd.source)
+    cl.status, cl.person_id, cl.name, cl.role = "enrolled", pid, name, m.get("role")
     runtime.invalidate_people()
     d = s.cluster_dict(cl)
     d["enrolled_templates"] = [{"sample_id": cd.sample_id, "width": cd.quality.metrics.get("width"),
@@ -362,7 +373,7 @@ def people():
 
 
 class PersonCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=100)
+    name: PersonName
     role: Optional[str] = None
 
 
@@ -374,7 +385,7 @@ async def person_create(req: PersonCreate):
 
 
 class PersonUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    name: Optional[PersonName] = None
     role: Optional[str] = None
 
 

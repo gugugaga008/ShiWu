@@ -12,7 +12,7 @@ export function EventsTable({ events }: { events: BossEvent[] }) {
           <TableHead>时间</TableHead>
           <TableHead>事件</TableHead>
           <TableHead>人员</TableHead>
-          <TableHead>角色</TableHead>
+          <TableHead>分组</TableHead>
           <TableHead className='text-end'>相似度</TableHead>
           <TableHead className='text-end'>视频源</TableHead>
         </TableRow>

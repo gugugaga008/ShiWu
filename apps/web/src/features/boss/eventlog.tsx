@@ -90,7 +90,7 @@ export function EventLogCard({ limit = 20 }: { limit?: number }) {
                 <TableHead className='w-40'>时间</TableHead>
                 <TableHead>类型</TableHead>
                 <TableHead>人员</TableHead>
-                <TableHead>角色</TableHead>
+                <TableHead>分组</TableHead>
                 <TableHead>详情</TableHead>
               </TableRow>
             </TableHeader>

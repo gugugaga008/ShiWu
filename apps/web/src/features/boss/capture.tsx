@@ -10,7 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { api, type Capture, type Cluster, errMsg, ROLE_LABEL, ROLE_VARIANT, withToken } from '@/lib/api'
+import { api, type Capture, type Cluster, type Person, errMsg, ROLE_LABEL, ROLE_VARIANT, withToken } from '@/lib/api'
 import { Page } from './page'
 import { SourcePicker, type SourceValue } from './source-picker'
 
@@ -41,7 +41,16 @@ export function CapturePage() {
     queryFn: async () => (await api.get<Capture>(`/captures/${current}`)).data,
     refetchInterval: (q) => (['ready', 'error', 'cancelled'].includes(q.state.data?.status ?? '') ? false : 1000),
   })
-  const refresh = () => qc.invalidateQueries({ queryKey: ['capture', current] })
+  const { data: people = [] } = useQuery({
+    queryKey: ['people'],
+    enabled: cap?.status === 'ready',
+    queryFn: async () => (await api.get<Person[]>('/people')).data,
+  })
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['capture', current] })
+    qc.invalidateQueries({ queryKey: ['people'] })
+    qc.invalidateQueries({ queryKey: ['status'] })
+  }
 
   const start = useMutation({
     mutationFn: async () => (await api.post<Capture>('/captures', { ...src, duration_s: duration })).data,
@@ -64,7 +73,7 @@ export function CapturePage() {
 
   const pending = cap?.clusters.filter((c) => c.status === 'pending').length ?? 0
   return (
-    <Page title='一键采集' desc='录一段视频 → 检测追踪 → 自动聚类出候选人物 → 标记老板/领导 → 入库'>
+    <Page title='一键采集' desc='录一段视频 → 自动聚类候选人物 → 填写姓名、选择分组 → 入库；老板/领导/同事是分组，不是姓名'>
       <Card>
         <CardHeader>
           <CardTitle>1. 选择视频源并采集</CardTitle>
@@ -105,9 +114,10 @@ export function CapturePage() {
           <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-3'>
             {cap.clusters.map((c) => (
               <ClusterCard
-                key={c.id}
+                key={`${cap.id}:${c.id}`}
                 sid={cap.id}
                 c={c}
+                knownPerson={people.find((p) => p.person_id === c.known_person_id)}
                 checked={selected.includes(c.id)}
                 onCheck={(v) => setSelected((s) => (v ? [...s, c.id] : s.filter((x) => x !== c.id)))}
                 onChanged={refresh}
@@ -123,35 +133,42 @@ export function CapturePage() {
 function ClusterCard({
   sid,
   c,
+  knownPerson,
   checked,
   onCheck,
   onChanged,
 }: {
   sid: string
   c: Cluster
+  knownPerson?: Person
   checked: boolean
   onCheck: (v: boolean) => void
   onChanged: () => void
 }) {
   const known = !!c.known_person_id
-  const [name, setName] = useState(c.name ?? c.known_name ?? '')
+  const [name, setName] = useState(c.name ?? '')
   const [role, setRole] = useState(c.role && c.role !== 'ignore' ? c.role : 'boss')
   const [attach, setAttach] = useState(known)
   const [picked, setPicked] = useState<number[]>([])
   const done = c.status !== 'pending'
+  const attaching = attach && known
+  const knownName = knownPerson?.name ?? c.known_name ?? c.known_person_id
+  const knownGroup = ROLE_LABEL[knownPerson?.role ?? ''] ?? '未设置'
 
   const confirm = useMutation({
     mutationFn: async (action: 'enroll' | 'ignore') =>
       (
         await api.post(`/captures/${sid}/clusters/${c.id}/confirm`, {
           action,
-          name: name || undefined,
-          role: action === 'ignore' ? 'ignore' : role,
-          person_id: attach ? c.known_person_id : undefined,
+          ...(action === 'enroll'
+            ? attaching
+              ? { person_id: c.known_person_id }
+              : { name: name.trim(), role }
+            : { role: 'ignore' }),
         })
       ).data,
     onSuccess: (d, action) => {
-      toast.success(action === 'ignore' ? '已忽略' : `已入库：${name}（${ROLE_LABEL[role]}），模板 ${d.enrolled_templates?.length ?? 0} 张`)
+      toast.success(action === 'ignore' ? '已忽略' : `已入库：${d.name}（分组：${ROLE_LABEL[d.role] ?? '未设置'}），模板 ${d.enrolled_templates?.length ?? 0} 张`)
       onChanged()
     },
     onError: (e) => toast.error(errMsg(e)),
@@ -179,8 +196,8 @@ function ClusterCard({
         />
         <div className='grid flex-1 gap-1'>
           <CardTitle className='flex items-center gap-2'>
-            人物 #{c.id}
-            {c.status === 'enrolled' && <Badge variant={ROLE_VARIANT[c.role ?? '']}>{ROLE_LABEL[c.role ?? '']} · 已入库</Badge>}
+            <span>{c.status === 'enrolled' ? c.name || '未命名人员' : `候选人物 #${c.id}`}</span>
+            {c.status === 'enrolled' && <Badge variant={ROLE_VARIANT[c.role ?? '']}>分组：{ROLE_LABEL[c.role ?? ''] ?? '未设置'} · 已入库</Badge>}
             {c.status === 'ignored' && <Badge variant='outline'>已忽略</Badge>}
           </CardTitle>
           <CardDescription>
@@ -188,7 +205,7 @@ function ClusterCard({
           </CardDescription>
           {known ? (
             <span className='text-xs'>
-              疑似已注册：<b>{c.known_name}</b>（{c.known_similarity.toFixed(2)}）
+              疑似已注册：<b>{knownName}</b>（{c.known_similarity.toFixed(2)}）
             </span>
           ) : (
             <span className='text-xs text-muted-foreground'>新面孔</span>
@@ -216,24 +233,38 @@ function ClusterCard({
         </div>
         {!done && (
           <div className='grid gap-2'>
-            <div className='grid grid-cols-[1fr_110px] gap-2'>
-              <Input placeholder='姓名，如 王总' value={name} onChange={(e) => setName(e.target.value)} />
-              <Select value={role} onValueChange={setRole}>
-                <SelectTrigger className='w-full'>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='boss'>老板</SelectItem>
-                  <SelectItem value='leader'>领导</SelectItem>
-                  <SelectItem value='staff'>同事</SelectItem>
-                  <SelectItem value='whitelist'>白名单</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            {attaching ? (
+              <div className='grid gap-1 text-sm'>
+                <span>姓名：{knownName}</span>
+                <span>分组：{knownPerson ? knownGroup : '加载中…'}</span>
+                <span className='text-xs text-muted-foreground'>仅补录人脸，不修改姓名或分组；如需修改，请到人员管理。</span>
+              </div>
+            ) : (
+              <div className='grid grid-cols-[1fr_110px] gap-2'>
+                <div className='grid gap-1.5'>
+                  <Label htmlFor={`capture-name-${sid}-${c.id}`}>姓名</Label>
+                  <Input id={`capture-name-${sid}-${c.id}`} placeholder='请输入姓名，如 张三' value={name} onChange={(e) => setName(e.target.value)} />
+                </div>
+                <div className='grid gap-1.5'>
+                  <Label htmlFor={`capture-group-${sid}-${c.id}`}>分组</Label>
+                  <Select value={role} onValueChange={setRole}>
+                    <SelectTrigger id={`capture-group-${sid}-${c.id}`} className='w-full'>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='boss'>老板</SelectItem>
+                      <SelectItem value='leader'>领导</SelectItem>
+                      <SelectItem value='staff'>同事</SelectItem>
+                      <SelectItem value='whitelist'>白名单</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
             {known && (
               <label className='flex items-center gap-2 text-xs'>
                 <Checkbox checked={attach} onCheckedChange={(v) => setAttach(!!v)} />
-                补录到已有人员「{c.known_name}」（不勾选则新建）
+                补录到已有人员「{knownName}」（不勾选则新建独立人员）
               </label>
             )}
           </div>
@@ -241,8 +272,8 @@ function ClusterCard({
       </CardContent>
       {!done && (
         <CardFooter className='flex flex-wrap gap-2'>
-          <Button size='sm' disabled={!name || confirm.isPending} onClick={() => confirm.mutate('enroll')}>
-            标记为{ROLE_LABEL[role]}并入库
+          <Button size='sm' disabled={(!attaching && !name.trim()) || confirm.isPending} onClick={() => confirm.mutate('enroll')}>
+            {attaching ? '补录到此人员' : '确认姓名与分组并入库'}
           </Button>
           <Button size='sm' variant='outline' onClick={() => confirm.mutate('ignore')}>
             忽略

@@ -70,12 +70,12 @@ export function StatsPage() {
   const trigKeys = Object.keys(data?.trigger_roles ?? {})
   const trend = (data?.daily ?? []).map((d) => ({ ...d, date: short(d.date) }))
   return (
-    <Page title='统计' desc='按人 / 角色 / 日期统计出现次数、时段分布与触发趋势'>
+    <Page title='统计' desc='按人 / 分组 / 日期统计出现次数、时段分布与触发趋势'>
       <div className='mb-4 flex flex-wrap items-center gap-2'>
         <FilterSelect value={days === '7' ? '' : days} onChange={(v) => setDays(v || '7')} placeholder='最近 7 天'
           options={[{ value: '14', label: '最近 14 天' }, { value: '30', label: '最近 30 天' }, { value: '90', label: '最近 90 天' }]} width='w-32' />
         <FilterSelect value={person} onChange={setPerson} placeholder='全部人员' options={people.map((p) => ({ value: p.person_id, label: p.name }))} />
-        <FilterSelect value={role} onChange={setRole} placeholder='全部角色' options={roleOptions} width='w-32' />
+        <FilterSelect value={role} onChange={setRole} placeholder='全部分组' options={roleOptions} width='w-32' />
         <FilterSelect value={source} onChange={setSource} placeholder='全部视频源' options={sources.map((s) => ({ value: s, label: s }))} width='w-32' />
         <Button variant='outline' className='ms-auto' asChild>
           <a href={withToken(`/stats/export.csv?${qs}`)} download>
@@ -152,7 +152,7 @@ export function StatsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>人员</TableHead>
-                  <TableHead>角色</TableHead>
+                  <TableHead>分组</TableHead>
                   <TableHead className='text-end'>合计</TableHead>
                   {(data?.dates ?? []).slice(-5).map((d) => (
                     <TableHead key={d} className='text-end'>{short(d)}</TableHead>
