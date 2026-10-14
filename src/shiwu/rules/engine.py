@@ -34,10 +34,12 @@ SERVER_ACTIONS = {"email"}   # 由服务端执行的动作；其余由桌面端�
 DEFAULT_RULES: List[dict] = [
     {"id": "boss", "role": "boss", "enabled": True, "min_confirm_s": 0.5, "cooldown_s": 30, "priority": 10,
      "restore_on_leave": False, "leave_after_s": 15,
-     "actions": [{"type": "notify", "params": {}}, {"type": "sound", "params": {}},
-                 {"type": "cover", "params": {"style": "spreadsheet"}},
-                 {"type": "minimize_all", "params": {}}],
+     "actions": [{"type": "notify", "params": {}}],
      "note": "识别到老板"},
+    {"id": "leader", "role": "leader", "enabled": True, "min_confirm_s": 0.5, "cooldown_s": 30, "priority": 10,
+     "restore_on_leave": False, "leave_after_s": 15,
+     "actions": [{"type": "notify", "params": {}}],
+     "note": "识别到领导"},
 ]
 
 

@@ -380,7 +380,7 @@ export function Rules() {
           k === 'person' ? { person_ids: people[0] ? [people[0].person_id] : [], priority: 50, note: '人员规则' } :
           k === 'stranger' ? { stranger: true, priority: 5, stranger_after_s: 5, note: '陌生人' } :
           k === 'whitelist' ? { whitelist: true, role: 'whitelist', priority: 100, min_frames: 1, actions: [], note: '白名单' } :
-          { role: 'boss', note: '分组规则' })])}>
+          { role: 'boss', actions: [{ type: 'notify', params: {} }], note: '分组规则' })])}>
           <SelectTrigger className='w-36'>
             <Plus /> <span>新增规则</span>
           </SelectTrigger>

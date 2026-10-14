@@ -134,8 +134,8 @@ def test_normalize_legacy_and_defaults():
     assert r[0]["cooldown_s"] == 30
     assert r[1]["actions"] == []                         # 未知动作被丢弃
     d = normalize_rules(DEFAULT_RULES)
-    assert len(d) == 1 and d[0]["id"] == "boss" and d[0]["min_confirm_s"] == 0.5
-    assert {a["type"] for a in d[0]["actions"]} >= {"notify", "cover", "minimize_all"}
+    assert [r["id"] for r in d] == ["boss", "leader"] and d[0]["min_confirm_s"] == 0.5
+    assert all(r["actions"] == [{"type": "notify", "params": {}}] for r in d)
     only_frames = normalize_rules([{"role": "boss", "min_frames": 1}, {"role": "boss", "min_frames": 3}])
     assert only_frames[0]["min_confirm_s"] == 0 and only_frames[1]["min_confirm_s"] == 0.4
 
