@@ -17,13 +17,16 @@ export function SearchProvider({ children }: SearchProviderProps) {
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
+      const key = e.key.toLowerCase()
+      if ((key === 'p' || key === 'k') && (e.metaKey || e.ctrlKey) && !e.altKey) {
         e.preventDefault()
-        setOpen((open) => !open)
+        if (e.repeat) return
+        setOpen((open) => key === 'p' || !open)
       }
     }
-    document.addEventListener('keydown', down)
-    return () => document.removeEventListener('keydown', down)
+    // 捕获阶段处理，输入框或其他组件阻止冒泡时仍能唤醒搜索并禁止打印。
+    document.addEventListener('keydown', down, true)
+    return () => document.removeEventListener('keydown', down, true)
   }, [])
 
   return (

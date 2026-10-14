@@ -5,10 +5,11 @@ import { Button } from './ui/button'
 
 export function Search({
   className = '',
-  placeholder = 'Search',
+  placeholder = '搜索',
   ...props
 }: React.ComponentProps<'button'> & { placeholder?: string }) {
   const { setOpen } = useSearch()
+  const modifier = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl'
   return (
     <Button
       {...props}
@@ -17,7 +18,7 @@ export function Search({
         'group relative h-8 w-full flex-1 justify-start rounded-md bg-muted/25 text-sm font-normal text-muted-foreground shadow-none hover:bg-accent sm:w-40 sm:pe-12 md:flex-none lg:w-52 xl:w-64',
         className
       )}
-      aria-keyshortcuts='Meta+K Control+K'
+      aria-keyshortcuts='Meta+P Control+P Meta+K Control+K'
       onClick={() => setOpen(true)}
     >
       <SearchIcon
@@ -27,7 +28,7 @@ export function Search({
       />
       <span className='ms-4'>{placeholder}</span>
       <kbd className='pointer-events-none absolute inset-e-[0.3rem] top-[0.3rem] hidden h-5 items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100 select-none group-hover:bg-accent sm:flex'>
-        <span className='text-xs'>⌘</span>K
+        <span className='text-xs'>{modifier}</span>P
       </kbd>
     </Button>
   )

@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { ArrowRight, ChevronRight, Laptop, Moon, Sun } from 'lucide-react'
 import { useSearch } from '@/context/search-provider'
 import { useTheme } from '@/context/theme-provider'
+import { useSettingsDialog } from '@/hooks/use-settings-dialog'
 import {
   CommandDialog,
   CommandEmpty,
@@ -28,6 +29,11 @@ export function CommandMenu() {
     [setOpen]
   )
 
+  const openPage = (url: string | undefined) => runCommand(() => {
+    if (url === '/settings') useSettingsDialog.getState().setOpen(true)
+    else navigate({ to: url })
+  })
+
   return (
     <CommandDialog modal open={open} onOpenChange={setOpen}>
       <CommandInput placeholder='搜索页面或命令…' />
@@ -43,7 +49,7 @@ export function CommandMenu() {
                       key={`${navItem.url}-${i}`}
                       value={navItem.title}
                       onSelect={() => {
-                        runCommand(() => navigate({ to: navItem.url }))
+                        openPage(navItem.url)
                       }}
                     >
                       <div className='flex size-4 items-center justify-center'>
@@ -58,7 +64,7 @@ export function CommandMenu() {
                     key={`${navItem.title}-${subItem.url}-${i}`}
                     value={`${navItem.title}-${subItem.url}`}
                     onSelect={() => {
-                      runCommand(() => navigate({ to: subItem.url }))
+                      openPage(subItem.url)
                     }}
                   >
                     <div className='flex size-4 items-center justify-center'>

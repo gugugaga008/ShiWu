@@ -1,4 +1,6 @@
+import { lazy, Suspense } from 'react'
 import { Outlet } from '@tanstack/react-router'
+import { useSettingsDialog } from '@/hooks/use-settings-dialog'
 import { getCookie } from '@/lib/cookies'
 import { cn } from '@/lib/utils'
 import { LayoutProvider } from '@/context/layout-provider'
@@ -7,12 +9,15 @@ import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/app-sidebar'
 import { SkipToMain } from '@/components/skip-to-main'
 
+const SettingsDialog = lazy(() => import('@/features/boss/settings').then((m) => ({ default: m.SettingsDialog })))
+
 type AuthenticatedLayoutProps = {
   children?: React.ReactNode
 }
 
 export function AuthenticatedLayout({ children }: AuthenticatedLayoutProps) {
   const defaultOpen = getCookie('sidebar_state') !== 'false'
+  const { open, setOpen } = useSettingsDialog()
   return (
     <SearchProvider>
       <LayoutProvider>
@@ -35,6 +40,7 @@ export function AuthenticatedLayout({ children }: AuthenticatedLayoutProps) {
           >
             {children ?? <Outlet />}
           </SidebarInset>
+          {open && <Suspense fallback={null}><SettingsDialog open={open} onOpenChange={setOpen} /></Suspense>}
         </SidebarProvider>
       </LayoutProvider>
     </SearchProvider>

@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, type RenderResult } from 'vitest-browser-react'
 import { userEvent } from 'vitest/browser'
 import { SearchProvider } from '@/context/search-provider'
+import { useSettingsDialog } from '@/hooks/use-settings-dialog'
+import { Search } from '@/components/search'
 import { sidebarData } from '@/components/layout/data/sidebar-data'
 
 const COMMAND_MENU_PLACEHOLDER = '搜索页面或命令…'
@@ -60,6 +62,7 @@ async function openCommandPalette(
 describe('SearchProvider and CommandMenu', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    useSettingsDialog.getState().setOpen(false)
   })
 
   afterEach(() => {
@@ -110,6 +113,86 @@ describe('SearchProvider and CommandMenu', () => {
     }
   )
 
+  it.each([
+    ['Ctrl', 'Control'],
+    ['Cmd', 'Meta'],
+  ] as const)('opens search with %s + P from any focused element and prevents printing', async (_label, modifier) => {
+    const screen = await render(
+      <SearchProvider>
+        <button>页面按钮</button>
+        <input aria-label='页面输入框' onKeyDown={(event) => event.stopPropagation()} />
+        <textarea aria-label='多行输入框' onKeyDown={(event) => event.stopPropagation()} />
+        <div contentEditable suppressContentEditableWarning role='textbox' aria-label='富文本输入框' onKeyDown={(event) => event.stopPropagation()} />
+      </SearchProvider>
+    )
+    const prevented: boolean[] = []
+    const observe = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() === 'p') prevented.push(event.defaultPrevented)
+    }
+    document.addEventListener('keydown', observe, true)
+    try {
+      for (const name of ['页面按钮', '页面输入框', '多行输入框', '富文本输入框']) {
+        await userEvent.click(screen.getByRole(name === '页面按钮' ? 'button' : 'textbox', { name }))
+        await userEvent.keyboard(`{${modifier}>}p{/${modifier}}`)
+        await expect.element(screen.getByPlaceholder(COMMAND_MENU_PLACEHOLDER)).toHaveFocus()
+        await userEvent.keyboard('{Escape}')
+        await expect.element(screen.getByPlaceholder(COMMAND_MENU_PLACEHOLDER)).not.toBeInTheDocument()
+      }
+      expect(prevented).toEqual([true, true, true, true])
+    } finally {
+      document.removeEventListener('keydown', observe, true)
+    }
+  })
+
+  it('P keeps an open palette visible, while K still toggles it', async () => {
+    const screen = await renderWithSearchProvider()
+    await userEvent.keyboard('{Control>}p{/Control}')
+    await expect.element(screen.getByPlaceholder(COMMAND_MENU_PLACEHOLDER)).toBeVisible()
+    await userEvent.keyboard('{Control>}p{/Control}')
+    await expect.element(screen.getByPlaceholder(COMMAND_MENU_PLACEHOLDER)).toBeVisible()
+    await userEvent.keyboard('{Control>}k{/Control}')
+    await expect.element(screen.getByPlaceholder(COMMAND_MENU_PLACEHOLDER)).not.toBeInTheDocument()
+    await userEvent.keyboard('{Meta>}k{/Meta}')
+    await expect.element(screen.getByPlaceholder(COMMAND_MENU_PLACEHOLDER)).toBeVisible()
+  })
+
+  it('normalizes shortcut keys, ignores held keys and removes its listener on unmount', async () => {
+    const screen = await renderWithSearchProvider()
+    const shortcut = (key: string, repeat = false) => new KeyboardEvent('keydown', { key, ctrlKey: true, repeat, bubbles: true, cancelable: true })
+    const held = shortcut('p', true)
+    document.dispatchEvent(held)
+    expect(held.defaultPrevented).toBe(true)
+    await expect.element(screen.getByPlaceholder(COMMAND_MENU_PLACEHOLDER)).not.toBeInTheDocument()
+    const uppercase = shortcut('P')
+    document.dispatchEvent(uppercase)
+    expect(uppercase.defaultPrevented).toBe(true)
+    await expect.element(screen.getByPlaceholder(COMMAND_MENU_PLACEHOLDER)).toBeVisible()
+    document.dispatchEvent(shortcut('k', true))
+    await expect.element(screen.getByPlaceholder(COMMAND_MENU_PLACEHOLDER)).toBeVisible()
+    await screen.unmount()
+    const afterUnmount = shortcut('p')
+    document.dispatchEvent(afterUnmount)
+    expect(afterUnmount.defaultPrevented).toBe(false)
+  })
+
+  it('does not intercept plain P or the existing Ctrl+Alt+P monitoring shortcut', async () => {
+    const screen = await renderWithSearchProvider()
+    for (const modifiers of [{}, { ctrlKey: true, altKey: true }]) {
+      const event = new KeyboardEvent('keydown', { key: 'p', bubbles: true, cancelable: true, ...modifiers })
+      document.dispatchEvent(event)
+      expect(event.defaultPrevented).toBe(false)
+    }
+    await expect.element(screen.getByPlaceholder(COMMAND_MENU_PLACEHOLDER)).not.toBeInTheDocument()
+  })
+
+  it('advertises P and K shortcuts and opens search from its button', async () => {
+    const screen = await render(<SearchProvider><Search placeholder='全局搜索' /></SearchProvider>)
+    const button = screen.getByRole('button', { name: /全局搜索/ })
+    await expect.element(button).toHaveAttribute('aria-keyshortcuts', 'Meta+P Control+P Meta+K Control+K')
+    await userEvent.click(button)
+    await expect.element(screen.getByPlaceholder(COMMAND_MENU_PLACEHOLDER)).toBeVisible()
+  })
+
   it('navigates to a top-level route and closes the palette when a nav item is selected', async () => {
     const screen = await renderWithSearchProvider()
 
@@ -127,7 +210,7 @@ describe('SearchProvider and CommandMenu', () => {
     // 产品侧栏为扁平结构，独立夹具保留嵌套导航分支的覆盖。
     sidebarData.navGroups = [{
       title: '测试导航',
-      items: [{ title: '测试子菜单', items: [{ title: '测试页面', url: '/settings' }] }],
+      items: [{ title: '测试子菜单', items: [{ title: '测试页面', url: '/sources' }] }],
     }]
     const screen = await renderWithSearchProvider()
     const { getByPlaceholder, getByRole } = screen
@@ -136,10 +219,25 @@ describe('SearchProvider and CommandMenu', () => {
 
     await userEvent.click(getByRole('option', { name: '测试子菜单 测试页面' }))
 
-    expect(mocks.navigate).toHaveBeenCalledWith({ to: '/settings' })
+    expect(mocks.navigate).toHaveBeenCalledWith({ to: '/sources' })
     await expect
       .element(getByPlaceholder(COMMAND_MENU_PLACEHOLDER))
       .not.toBeInTheDocument()
+  })
+
+  it.each(['top-level', 'nested'])('opens settings over the current page without navigation (%s command)', async (level) => {
+    sidebarData.navGroups = [{
+      title: '设置测试',
+      items: level === 'top-level'
+        ? [{ title: '全局设置', url: '/settings' }]
+        : [{ title: '应用', items: [{ title: '全局设置', url: '/settings' }] }],
+    }]
+    const screen = await renderWithSearchProvider()
+    await openCommandPalette(screen)
+    await userEvent.click(screen.getByRole('option', { name: /全局设置/ }))
+    expect(useSettingsDialog.getState().open).toBe(true)
+    expect(mocks.navigate).not.toHaveBeenCalled()
+    await expect.element(screen.getByPlaceholder(COMMAND_MENU_PLACEHOLDER)).not.toBeInTheDocument()
   })
 
   it('applies theme and closes the palette when a theme command is chosen', async () => {

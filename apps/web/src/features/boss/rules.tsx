@@ -48,7 +48,7 @@ const blank = (over: Partial<Rule>): Rule => ({
   note: '', ...over,
 })
 const kindOf = (r: Rule) => (r.whitelist ? 'whitelist' : r.stranger ? 'stranger' : r.person_ids.length ? 'person' : 'role')
-const KIND_LABEL: Record<string, string> = { whitelist: '白名单', stranger: '陌生人', person: '人员', role: '角色' }
+const KIND_LABEL: Record<string, string> = { whitelist: '白名单', stranger: '陌生人', person: '人员', role: '分组' }
 type RulesResp = { rules: Rule[]; actions: { value: string; label: string }[] }
 type Monitor = { paused: boolean; fired: number; suppressed?: number; pipeline_running: boolean }
 
@@ -183,9 +183,9 @@ function RuleCard({ r, types, people, sources, onChange, onDelete }: {
         </div>
       </CardHeader>
       <CardContent className='grid gap-4'>
-        <div className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
+        <div className='grid grid-cols-1 gap-3'>
           {kind !== 'stranger' && (
-            <Field label='角色'>
+            <Field label='分组'>
               <Select value={r.role ?? '_any'} onValueChange={(v) => onChange({ ...r, role: v === '_any' ? null : v })}>
                 <SelectTrigger className='w-full'>
                   <SelectValue />
@@ -252,7 +252,7 @@ function RuleCard({ r, types, people, sources, onChange, onDelete }: {
           <Field label='时间段（星期 + 时间窗）'>
             <ScheduleEditor value={r.schedule} onChange={(schedule) => onChange({ ...r, schedule })} />
           </Field>
-          <div className='grid grid-cols-2 gap-3'>
+          <div className='grid grid-cols-1 gap-3'>
             <Field label='最小人脸宽度（px）' hint='越大 = 越近才触发'>
               <Input type='number' min={0} value={r.min_face_px} onChange={(e) => onChange({ ...r, min_face_px: +e.target.value })} />
             </Field>
@@ -285,7 +285,7 @@ function RuleCard({ r, types, people, sources, onChange, onDelete }: {
             </label>
             <div className='grid gap-2 rounded-md border p-3'>
               <span className='text-sm font-medium'>动作</span>
-              <div className='grid grid-cols-2 gap-x-3 gap-y-1.5 sm:grid-cols-3'>
+              <div className='grid grid-cols-1 gap-1.5'>
                 {types.map((t) => (
                   <label key={t.value} className='flex items-center gap-2 text-sm' title={ACTION_HINT[t.value]}>
                     <Checkbox checked={!!has(t.value)} onCheckedChange={(v) => toggle(t.value, !!v)} />
@@ -294,7 +294,7 @@ function RuleCard({ r, types, people, sources, onChange, onDelete }: {
                 ))}
               </div>
               {r.actions.filter((a) => ['focus_app', 'command', 'sound', 'notify', 'email'].includes(a.type)).map((a) => (
-                <div key={a.type} className='grid items-center gap-2 sm:grid-cols-[110px_1fr]'>
+                <div key={a.type} className='grid grid-cols-1 gap-2'>
                   <span className='text-xs text-muted-foreground'>{types.find((t) => t.value === a.type)?.label}</span>
                   <ParamEditor a={a} onChange={(params) => onChange({ ...r, actions: r.actions.map((x) => (x.type === a.type ? { ...x, params } : x)) })} />
                 </div>
@@ -353,7 +353,7 @@ export function Rules() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['monitor'] }),
   })
   return (
-    <Page title='规则设置' desc='角色 / 人员 / 陌生人 / 白名单规则并存；按优先级从高到低，每张脸只匹配第一条满足条件的规则'>
+    <Page title='规则设置' desc='分组 / 人员 / 陌生人 / 白名单规则并存；按优先级从高到低，每张脸只匹配第一条满足条件的规则'>
       <Card className='mb-4'>
         <CardHeader className='flex flex-row items-center justify-between space-y-0'>
           <div>
@@ -370,13 +370,13 @@ export function Rules() {
               k === 'person' ? { person_ids: people[0] ? [people[0].person_id] : [], priority: 50, note: '人员规则' } :
               k === 'stranger' ? { stranger: true, priority: 5, stranger_after_s: 5, note: '陌生人' } :
               k === 'whitelist' ? { whitelist: true, role: 'whitelist', priority: 100, min_frames: 1, actions: [], note: '白名单' } :
-              { role: 'boss', note: '角色规则' })])}>
+              { role: 'boss', note: '分组规则' })])}>
               <SelectTrigger className='w-36'>
                 <Plus /> <span>新增规则</span>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value='person'>人员规则</SelectItem>
-                <SelectItem value='role'>角色规则</SelectItem>
+                <SelectItem value='role'>分组规则</SelectItem>
                 <SelectItem value='stranger'>陌生人规则</SelectItem>
                 <SelectItem value='whitelist'>白名单规则</SelectItem>
               </SelectContent>
@@ -393,7 +393,7 @@ export function Rules() {
         title='确认启用自定义命令？'
         desc={
           <div className='grid gap-2'>
-            <p>识别到对应角色时，桌面端会以你的用户权限直接运行下面的命令。请确认命令来源可信：</p>
+            <p>识别到对应分组时，桌面端会以你的用户权限直接运行下面的命令。请确认命令来源可信：</p>
             <pre className='rounded bg-muted p-2 text-xs whitespace-pre-wrap'>{(confirmCmd ?? []).join('\n')}</pre>
           </div>
         }
@@ -404,7 +404,7 @@ export function Rules() {
           save.mutate()
         }}
       />
-      <div className='grid gap-4 xl:grid-cols-2'>
+      <div className='grid grid-cols-1 gap-4'>
         {[...rules].sort((a, b) => b.priority - a.priority).map((r) => (
           <RuleCard key={r.id} r={r} types={data?.actions ?? []} people={people} sources={sources}
             onChange={(nr) => setRules((rs) => rs.map((x) => (x.id === r.id ? nr : x)))}

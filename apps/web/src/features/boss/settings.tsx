@@ -1,15 +1,19 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useSettingsDialog } from '@/hooks/use-settings-dialog'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Mail, Plus, Save, Trash2 } from 'lucide-react'
+import { ChevronRight, Mail, Plus, Save, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { api, errMsg } from '@/lib/api'
+import { cn } from '@/lib/utils'
+import { MobilePreview } from './mobile-preview'
 import { Page } from './page'
 import { SourcePicker, type SourceValue } from './source-picker'
 
@@ -52,7 +56,69 @@ function Row({ label, desc, children }: { label: string; desc?: string; children
   )
 }
 
+const MENU = [
+  { label: '基础', items: [{ id: 'sources', label: '默认视频源' }, { id: 'startup', label: '启动' }] },
+  { label: '监控与隐私', items: [{ id: 'preview', label: '手机扫码预览' }, { id: 'performance', label: '性能' }, { id: 'snapshots', label: '触发快照' }] },
+  { label: '通知', items: [{ id: 'email', label: '邮件通知' }] },
+] as const
+
+type Section = typeof MENU[number]['items'][number]['id']
+
 export function SettingsPage() {
+  const setOpen = useSettingsDialog((s) => s.setOpen)
+  useEffect(() => { setOpen(true) }, [setOpen])
+  return (
+    <Page title='设置' desc='按分类管理配置，实时画面仅在手机查看'>
+      <Button onClick={() => setOpen(true)}>打开设置</Button>
+    </Page>
+  )
+}
+
+export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className='flex max-h-[90dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl'>
+        <DialogHeader className='shrink-0 border-b p-5'>
+          <DialogTitle>设置</DialogTitle>
+          <DialogDescription>选择分类下的二级菜单；更改后点击保存，关闭不会自动保存。</DialogDescription>
+        </DialogHeader>
+        {open && <SettingsForm />}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function PreviewSettings() {
+  const { data, isError } = useQuery({
+    queryKey: ['pipeline'],
+    queryFn: async () => (await api.get<{ pipelines: { name: string; running: boolean }[] }>('/pipeline/status')).data,
+    refetchInterval: 1500,
+  })
+  const pipelines = data?.pipelines ?? []
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>手机扫码预览</CardTitle>
+        <CardDescription>隐藏二维码或关闭设置，手机仍可查看至本次会话到期。电脑不展示实时画面。</CardDescription>
+      </CardHeader>
+      <CardContent className='grid gap-3'>
+        {isError && <p role='alert'>无法读取视频源状态，请稍后重试。</p>}
+        {!isError && !data && <p role='status'>正在读取视频源…</p>}
+        {data && pipelines.length === 0 && <p className='text-sm text-muted-foreground'>暂无视频源，请先在「视频源」页面添加并启动。</p>}
+        {pipelines.map((p) => (
+          <div key={p.name} className='flex flex-wrap items-center justify-between gap-3 rounded-md border p-3'>
+            <div><div className='font-medium'>{p.name}</div><p className='text-xs text-muted-foreground'>{p.running ? '运行中' : '已停止'}</p></div>
+            <MobilePreview source={p.name} disabled={!p.running} />
+          </div>
+        ))}
+        <p className='text-xs text-muted-foreground'>会话最长 10 分钟；到期后重新扫码。需要提前停止时，打开对应二维码并点击「断开手机预览」。</p>
+      </CardContent>
+    </Card>
+  )
+}
+
+function SettingsForm() {
+  const [section, setSection] = useState<Section>('sources')
   const { data } = useQuery({ queryKey: ['settings'], queryFn: async () => (await api.get<Settings>('/settings')).data })
   const qc = useQueryClient()
   const [s, setS] = useState<Settings | null>(null)
@@ -93,13 +159,30 @@ export function SettingsPage() {
     },
     onError: (e) => toast.error(errMsg(e)),
   })
-  if (!s) return <Page title='设置'>加载中…</Page>
+  if (!s) return <p role='status' className='p-6'>加载中…</p>
   const set = (p: Partial<Settings>) => setS({ ...s, ...p })
   return (
-    <Page title='设置' desc='默认视频源、开机自启、性能、触发快照与邮件通知'>
-      <div className='grid gap-4 xl:grid-cols-2'>
-       <div className='grid content-start gap-4'>
-        <Card>
+    <>
+      <div className='flex min-h-0 flex-col overflow-y-auto md:flex-row md:overflow-hidden'>
+        <nav aria-label='设置分类' className='grid shrink-0 gap-4 border-b bg-muted/30 p-4 md:w-48 md:overflow-y-auto md:border-e md:border-b-0'>
+          {MENU.map((group) => (
+            <div key={group.label}>
+              <h2 className='mb-1 px-2 text-xs font-semibold text-muted-foreground'>{group.label}</h2>
+              <div className='grid gap-1'>
+                {group.items.map((item) => (
+                  <button key={item.id} type='button' aria-current={section === item.id ? 'page' : undefined}
+                    className={cn('flex items-center justify-between rounded-md px-2 py-2 text-start text-sm hover:bg-accent', section === item.id && 'bg-accent font-medium')}
+                    onClick={() => setSection(item.id)}>
+                    {item.label}<ChevronRight className='size-3.5' />
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </nav>
+        <div className='min-w-0 flex-1 p-4 md:overflow-y-auto' aria-label='设置内容'>
+        {section === 'preview' && <PreviewSettings />}
+        {section === 'sources' && <Card>
           <CardHeader>
             <CardTitle>默认视频源</CardTitle>
             <CardDescription>桌面端启动（含开机自启）后自动开始监控；可设多路，同时运行</CardDescription>
@@ -143,8 +226,8 @@ export function SettingsPage() {
               </div>
             </div>
           </CardContent>
-        </Card>
-        <Card>
+        </Card>}
+        {section === 'startup' && <Card>
           <CardHeader>
             <CardTitle>启动</CardTitle>
           </CardHeader>
@@ -156,8 +239,8 @@ export function SettingsPage() {
               <Switch checked={s.auto_monitor} onCheckedChange={(auto_monitor) => set({ auto_monitor })} />
             </Row>
           </CardContent>
-        </Card>
-        <Card>
+        </Card>}
+        {section === 'performance' && <Card>
           <CardHeader>
             <CardTitle>性能</CardTitle>
             <CardDescription>自适应抽帧：画面有人时提高识别帧率，没人时降频省电，并按单帧耗时自动限速</CardDescription>
@@ -176,10 +259,8 @@ export function SettingsPage() {
               <Input className='w-24' type='number' min={1} max={8} value={s.max_sources} onChange={(e) => set({ max_sources: +e.target.value })} />
             </Row>
           </CardContent>
-        </Card>
-       </div>
-       <div className='grid content-start gap-4'>
-        <Card>
+        </Card>}
+        {section === 'snapshots' && <Card>
           <CardHeader>
             <CardTitle className='flex items-center gap-2'>
               触发快照
@@ -195,16 +276,16 @@ export function SettingsPage() {
               <Input className='w-24' type='number' min={0} max={3650} value={s.snapshot_retention_days} onChange={(e) => set({ snapshot_retention_days: +e.target.value })} />
             </Row>
           </CardContent>
-        </Card>
-        <Card>
+        </Card>}
+        {section === 'email' && <Card>
           <CardHeader>
             <CardTitle className='flex items-center gap-2'>
               邮件通知 {s.smtp_password_set && <Badge variant='secondary'>授权码已加密保存</Badge>}
             </CardTitle>
-            <CardDescription>在规则里勾选「发送邮件」动作后生效；邮件含时间、人员、角色与触发快照</CardDescription>
+            <CardDescription>在规则里勾选「发送邮件」动作后生效；邮件含时间、人员、分组与触发快照</CardDescription>
           </CardHeader>
           <CardContent className='grid gap-3'>
-            <div className='grid grid-cols-[1fr_96px_130px] gap-2'>
+            <div className='grid gap-2 sm:grid-cols-[1fr_80px_120px]'>
               <div className='grid gap-1.5'>
                 <Label>SMTP 服务器</Label>
                 <Input placeholder='smtp.qq.com' value={s.smtp_host} onChange={(e) => set({ smtp_host: e.target.value })} />
@@ -258,21 +339,21 @@ export function SettingsPage() {
             <label className='flex items-center gap-2 text-sm'>
               <Switch checked={s.smtp_verify_tls} onCheckedChange={(smtp_verify_tls) => set({ smtp_verify_tls })} /> 校验服务器证书
             </label>
-            <div className='flex gap-2 border-t pt-3'>
+            <div className='flex flex-wrap gap-2 border-t pt-3'>
               <Input className='h-9' placeholder='测试收件人（留空用上面的收件人）' value={testTo} onChange={(e) => setTestTo(e.target.value)} />
               <Button variant='outline' disabled={testMail.isPending || !s.smtp_host} onClick={() => testMail.mutate()}>
                 <Mail /> {testMail.isPending ? '发送中…' : '发送测试邮件'}
               </Button>
             </div>
           </CardContent>
-        </Card>
-       </div>
+        </Card>}
+        </div>
       </div>
-      <div className='mt-4'>
-        <Button onClick={() => save.mutate()}>
-          <Save /> 保存设置
+      <div className='flex shrink-0 justify-end border-t p-4'>
+        <Button disabled={save.isPending || testMail.isPending} onClick={() => save.mutate()}>
+          <Save /> {save.isPending ? '保存中…' : '保存设置'}
         </Button>
       </div>
-    </Page>
+    </>
   )
 }

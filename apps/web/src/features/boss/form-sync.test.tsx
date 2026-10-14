@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { Rules, type Rule } from './rules'
-import { SettingsPage } from './settings'
+import { SettingsDialog } from './settings'
 
 const requests = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn(), post: vi.fn() }))
 
@@ -100,14 +100,15 @@ describe('服务端数据与编辑表单同步', () => {
   it('设置支持异步加载、保留本地编辑并同步新的服务端数据', async () => {
     const qc = client()
     requests.get.mockImplementation(() => new Promise(() => {}))
-    const screen = await render(form(qc, <SettingsPage />))
+    const screen = await render(form(qc, <SettingsDialog open onOpenChange={() => {}} />))
     await expect.element(screen.getByText('加载中…')).toBeVisible()
 
     qc.setQueryData(['settings'], settings('initial.smtp.local'))
+    await screen.getByRole('button', { name: '邮件通知', exact: true }).click()
     const host = screen.getByPlaceholder('smtp.qq.com')
     await expect.element(host).toHaveValue('initial.smtp.local')
     await host.fill('edited.smtp.local')
-    await screen.rerender(form(qc, <SettingsPage />))
+    await screen.rerender(form(qc, <SettingsDialog open onOpenChange={() => {}} />))
     await expect.element(host).toHaveValue('edited.smtp.local')
 
     qc.setQueryData(['settings'], settings('refetched.smtp.local'))
@@ -119,7 +120,8 @@ describe('服务端数据与编辑表单同步', () => {
     const response = settings('initial.smtp.local')
     qc.setQueryData(['settings'], response)
     requests.get.mockResolvedValue({ data: response })
-    const screen = await render(form(qc, <SettingsPage />))
+    const screen = await render(form(qc, <SettingsDialog open onOpenChange={() => {}} />))
+    await screen.getByRole('button', { name: '邮件通知', exact: true }).click()
     await screen.getByPlaceholder('smtp.qq.com').fill('saved.smtp.local')
     await screen.getByRole('button', { name: '保存设置', exact: true }).click()
     await expect.poll(() => requests.put.mock.calls[0]).toEqual([
