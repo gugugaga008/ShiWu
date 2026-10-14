@@ -156,3 +156,13 @@
 - **影响范围**：启动采集与隐私指示灯、全新安装默认规则、系统通知可见性、人员列表/添加表单、时间线保留、命令面板。已有 `rules.json` 与已保存设置不受默认值影响。不改鉴权与 CI。未动 `apps/web/src/features/boss/mobile-preview.test.tsx`。
 - **验证结果**：`tests/test_camera.py`+`test_rules.py` **17 passed、3 skipped**；`test_api.py`/`test_rules_v11.py` **9 passed、8 skipped**（缺素材或解释器，含人员删除/头像的 e2e 未跑）；桌面 `actions.test.js` **8 passed**；前端 `people-add` **19 passed**、`search-provider` **20 passed**、`settings`+`rules` **10 passed**。未跑全量前端/后端，未做真机摄像头指示灯与 macOS 通知授权验收。
 - **遗留事项**：真机确认打开软件摄像头灯不亮、系统通知权限弹窗、删人后时间线缩略图仍在。不发布安装包。
+
+---
+
+## 26-10-15-0245 体验修复：人员补录、设置保存与测试快照
+
+- **目标**：按语音体验记录修人员/规则/画面源/设置交互：照片成功后恢复空白表单，补录进添加页；视频像照片一样选目录或拖入；人员改名改为编辑、点照片看大图、列表显示注册时间；规则测试动作带时间戳大图；画面源预设深色 tag、分辨率仅已选摄像头时出现；设置右下角保存修改、未保存橙色呼吸点；默认画面源从已添加源勾选。
+- **涉及文件及主要修改**：`bridge.py` 成员快照补 `joined_at`；`runtime.py` 证件照 384、启动成功写入 `saved_sources`、保存设置不覆盖该目录；`routes.py` 测试动作返回带时间戳 JPEG 与 `snapshot_url`。前端人员添加成功清空表单，`/people/add?person=` 补录照片或视频；列表「编辑」与照片弹窗；视频选择/拖入；设置默认源勾选、保存修改与未保存点；规则/时间线共用 `snapshot-dialog`；侧栏手绘雷达 logo；桌面通知浮窗带时间。
+- **影响范围**：人员添加/列表、设置默认源、规则测试弹窗、通知浮窗外观。不改鉴权、规则插件或 CI。保存设置不会清掉已记住的画面源目录。
+- **验证结果**：后端 `test_api.py`+`test_capture_identity.py` **16 passed、8 skipped**；`test_rules.py`+`test_rules_v11.py` **20 passed**。前端定向 6 文件 **51 passed**（people-add / capture-identity / settings / source-picker / rules / form-sync）。桌面 `actions.test.js`+`windows.test.js` **14 passed**。未跑全量前端 lint/build（仓库内既有 `set-state-in-effect` 与 `mobile-preview.test.tsx` TS2550 仍在），未做真机摄像头/界面操作验收。
+- **遗留事项**：规则其余动作可后续做插件；统计图表、现场采集、菜单折叠本轮未改。不发布安装包。
