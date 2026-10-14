@@ -32,8 +32,8 @@ function client() {
   qc.setQueryData(['people'], [])
   return qc
 }
-function form(qc: QueryClient, initialMode?: 'photo' | 'file' | 'live') {
-  return <StrictMode><QueryClientProvider client={qc}><PeopleAdd initialMode={initialMode} /></QueryClientProvider></StrictMode>
+function form(qc: QueryClient, initialMode?: 'photo' | 'file' | 'live', personId?: string) {
+  return <StrictMode><QueryClientProvider client={qc}><PeopleAdd initialMode={initialMode} personId={personId} /></QueryClientProvider></StrictMode>
 }
 function photos(...names: string[]) {
   const input = document.querySelector<HTMLInputElement>('#photo-person-files')!
@@ -87,7 +87,9 @@ describe('照片添加人员', () => {
     expect(url).toBe('/people/p-new/photos')
     expect([...body.keys()]).toEqual(['files', 'files'])
     expect(body.getAll('files').map((file) => (file as File).name)).toEqual(['front.jpg', 'side.jpg'])
-    await expect.element(screen.getByRole('status')).toHaveTextContent('本次通过 2 张')
+    await expect.poll(() => notifications.success.mock.calls.length).toBe(1)
+    await expect.element(screen.getByRole('textbox', { name: '姓名', exact: true })).toHaveValue('')
+    expect(document.body.textContent).not.toContain('当前人员')
     expect(requests.put).not.toHaveBeenCalled()
     expect(requests.delete).not.toHaveBeenCalled()
   })
@@ -138,10 +140,11 @@ describe('照片添加人员', () => {
     await expect.poll(() => requests.post.mock.calls.length).toBe(3)
     expect(requests.post.mock.calls[2][0]).toBe('/people/p-new/photos')
     expect((requests.post.mock.calls[2][1] as FormData).get('files')).toHaveProperty('name', 'good.jpg')
-    await expect.element(screen.getByRole('status')).toHaveTextContent('本次通过 1 张')
+    await expect.poll(() => notifications.success.mock.calls.length).toBe(1)
+    await expect.element(screen.getByRole('textbox', { name: '姓名', exact: true })).toHaveValue('')
   })
 
-  it('部分照片通过时准确展示数量和拒绝原因，继续补录不会新建，下一位需重新填姓名与照片', async () => {
+  it('部分照片通过时提示数量并清空表单，下一位会重新创建', async () => {
     requests.post.mockImplementation(async (url: string) => ({ data: url === '/people'
       ? { person_id: 'p-new', name: '王五', role: 'staff' }
       : { accepted: 1, rejected: [{ source: 'bad.jpg', reasons: ['no_face'] }] } }))
@@ -149,15 +152,13 @@ describe('照片添加人员', () => {
     await screen.getByRole('textbox', { name: '姓名', exact: true }).fill('王五')
     photos('front.jpg', 'bad.jpg')
     await screen.getByRole('button', { name: '上传并添加人员' }).click()
-    await expect.element(screen.getByRole('status')).toHaveTextContent('本次通过 1 张，拒绝 1 张')
-    await expect.element(screen.getByText('未通过：bad.jpg（no_face）')).toBeVisible()
-    photos('side.jpg')
-    await screen.getByRole('button', { name: '重试 / 补录照片' }).click()
-    await expect.poll(() => requests.post.mock.calls.length).toBe(3)
-    expect(requests.post.mock.calls[2][0]).toBe('/people/p-new/photos')
-    await screen.getByRole('button', { name: '添加下一位' }).click()
+    await expect.poll(() => String(notifications.success.mock.calls[0]?.[0])).toMatch(/通过 1 张/)
     await expect.element(screen.getByRole('textbox', { name: '姓名', exact: true })).toHaveValue('')
-    await expect.element(screen.getByRole('button', { name: '上传并添加人员' })).toBeDisabled()
+    expect(document.body.textContent).not.toContain('当前人员')
+    await screen.getByRole('textbox', { name: '姓名', exact: true }).fill('赵六')
+    photos('side.jpg')
+    await screen.getByRole('button', { name: '上传并添加人员' }).click()
+    await expect.poll(() => requests.post.mock.calls.filter(([url]) => url === '/people')).toHaveLength(2)
     expect(requests.delete).not.toHaveBeenCalled()
   })
 
@@ -176,7 +177,8 @@ describe('照片添加人员', () => {
     await screen.getByRole('button', { name: '视频文件添加', exact: true }).click()
     finish({ data: { accepted: 1, rejected: [] } })
     await screen.getByRole('button', { name: '照片添加', exact: true }).click()
-    await expect.element(screen.getByRole('status')).toHaveTextContent('本次通过 1 张')
+    await expect.poll(() => notifications.success.mock.calls.length).toBe(1)
+    await expect.element(screen.getByRole('textbox', { name: '姓名', exact: true })).toHaveValue('')
     expect(requests.post).toHaveBeenCalledTimes(2)
     expect(requests.delete).not.toHaveBeenCalled()
   })
@@ -192,7 +194,8 @@ describe('照片添加人员', () => {
     await expect.element(screen.getByRole('button', { name: '上传并添加人员' })).toBeEnabled()
     await screen.getByRole('textbox', { name: '姓名', exact: true }).fill('李四')
     await screen.getByRole('button', { name: '上传并添加人员' }).click()
-    await expect.element(screen.getByRole('status')).toHaveTextContent('本次通过 2 张')
+    await expect.poll(() => notifications.success.mock.calls.length).toBe(1)
+    await expect.element(screen.getByRole('textbox', { name: '姓名', exact: true })).toHaveValue('')
     expect(requests.post.mock.calls.filter(([url]) => url === '/people')).toHaveLength(2)
     expect(requests.delete).not.toHaveBeenCalled()
   })
@@ -211,7 +214,8 @@ describe('照片添加人员', () => {
     await expect.element(returned.getByRole('button', { name: '正在上传…' })).toBeDisabled()
     expect(requests.post).toHaveBeenCalledTimes(1)
     finish({ data: { person_id: 'in-flight', name: '王五', role: 'staff' } })
-    await expect.element(returned.getByRole('status')).toHaveTextContent('本次通过 1 张')
+    await expect.poll(() => notifications.success.mock.calls.length).toBe(1)
+    await expect.element(returned.getByRole('textbox', { name: '姓名', exact: true })).toHaveValue('')
     expect(requests.post.mock.calls.map(([url]) => url)).toEqual(['/people', '/people/in-flight/photos'])
   })
 
@@ -237,7 +241,8 @@ describe('照片添加人员', () => {
     photos('new-angle.jpg')
     requests.post.mockResolvedValue({ data: { accepted: 1, rejected: [] } })
     await returned.getByRole('button', { name: '重试 / 补录照片' }).click()
-    await expect.element(returned.getByRole('status')).toHaveTextContent('本次通过 1 张')
+    await expect.poll(() => notifications.success.mock.calls.length).toBe(1)
+    await expect.element(returned.getByRole('textbox', { name: '姓名', exact: true })).toHaveValue('')
     expect(requests.post.mock.calls.map(([url]) => url)).toEqual(['/people', '/people/retained/photos', '/people/retained/photos'])
     expect((requests.post.mock.calls[2][1] as FormData).get('files')).toHaveProperty('name', 'new-angle.jpg')
     expect(requests.delete).not.toHaveBeenCalled()
@@ -264,9 +269,9 @@ describe('照片添加人员', () => {
     await returned.getByRole('button', { name: '使用所选人员继续补录' }).click()
     requests.post.mockResolvedValue({ data: { accepted: 1, rejected: [] } })
     await returned.getByRole('button', { name: '重试 / 补录照片' }).click()
-    await expect.element(returned.getByRole('status')).toHaveTextContent('本次通过 1 张')
+    await expect.poll(() => notifications.success.mock.calls.length).toBe(1)
+    await expect.element(returned.getByRole('textbox', { name: '姓名', exact: true })).toHaveValue('')
     expect(requests.post.mock.calls.map(([url]) => url)).toEqual(['/people', '/people/created-before-disconnect/photos'])
-    await returned.getByRole('button', { name: '添加下一位' }).click()
     await returned.getByRole('textbox', { name: '姓名', exact: true }).fill('下一位乙')
     photos('b.jpg')
     requests.post.mockRejectedValue({ response: { status: 500 } })
@@ -309,8 +314,24 @@ describe('照片添加人员', () => {
       ? { person_id: 'p-new', name: '王五', role: 'staff' }
       : { accepted: 1, rejected: [] } }))
     await screen.getByRole('button', { name: '上传并添加人员' }).click()
-    await expect.element(screen.getByRole('status')).toHaveTextContent('本次通过 1 张')
+    await expect.poll(() => notifications.success.mock.calls.length).toBe(1)
+    await expect.element(screen.getByRole('textbox', { name: '姓名', exact: true })).toHaveValue('')
     expect(requests.post.mock.calls.map(([url]) => url)).toEqual(['/people', '/people/gone/photos', '/people', '/people/p-new/photos'])
+  })
+
+  it('补录已有人员不新建，成功后仍停在补录态', async () => {
+    const person = { person_id: 'p1', name: '张三', role: 'staff' }
+    requests.get.mockResolvedValue({ data: [person] })
+    const qc = client()
+    qc.setQueryData(['people'], [person])
+    const screen = await render(form(qc, 'photo', 'p1'))
+    await expect.element(screen.getByText(/正在为「张三」补录/)).toBeVisible()
+    photos('a.jpg')
+    await screen.getByRole('button', { name: '补录照片' }).click()
+    await expect.poll(() => requests.post.mock.calls.map(([url]) => url)).toEqual(['/people/p1/photos'])
+    await expect.element(screen.getByRole('status')).toHaveTextContent('本次通过 2 张')
+    await expect.element(screen.getByRole('button', { name: '补录照片' })).toBeVisible()
+    expect(document.body.textContent).not.toContain('添加下一位')
   })
 
   it('创建响应不明时不自动重发创建，避免重试导致重复人员', async () => {

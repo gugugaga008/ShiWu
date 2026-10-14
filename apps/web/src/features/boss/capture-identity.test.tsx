@@ -12,7 +12,10 @@ const notifications = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }))
 vi.mock('@/lib/api', async (original) => ({ ...(await original<typeof import('@/lib/api')>()), api: requests }))
 vi.mock('sonner', () => ({ toast: notifications }))
 vi.mock('./source-picker', () => ({ SourcePicker: () => null }))
-vi.mock('@tanstack/react-router', () => ({ Link: ({ to, children }: { to: string; children: ReactNode }) => <a href={to}>{children}</a> }))
+vi.mock('@tanstack/react-router', () => ({ Link: ({ to, search, children }: { to: string; search?: Record<string, string>; children: ReactNode }) => {
+  const href = search ? `${to}?${new URLSearchParams(search).toString()}` : to
+  return <a href={href}>{children}</a>
+} }))
 vi.mock('./page', () => ({
   Page: ({ children, desc }: { children: ReactNode; desc: string }) => <main><p>{desc}</p>{children}</main>,
 }))
@@ -161,7 +164,7 @@ describe('人员管理的姓名与分组', () => {
     expect(requests.post).not.toHaveBeenCalled()
   })
 
-  it('调整分组仅提交 role，显式改名只提交 name', async () => {
+  it('调整分组仅提交 role，显式编辑只提交 name', async () => {
     const qc = client()
     qc.setQueryData(['people'], [person()])
     requests.get.mockResolvedValue({ data: [person()] })
@@ -169,7 +172,7 @@ describe('人员管理的姓名与分组', () => {
     await screen.getByRole('combobox', { name: '张三的分组' }).click()
     await screen.getByRole('option', { name: '领导', exact: true }).click()
     await expect.poll(() => requests.put.mock.calls[0]).toEqual(['/people/p1', { role: 'leader' }])
-    await screen.getByRole('button', { name: '改名', exact: true }).click()
+    await screen.getByRole('button', { name: '编辑', exact: true }).click()
     await screen.getByRole('textbox', { name: '修改张三的姓名' }).fill('  ')
     await expect.element(screen.getByRole('button', { name: '保存姓名' })).toBeDisabled()
     await screen.getByRole('textbox', { name: '修改张三的姓名' }).fill(' 李四 ')
@@ -177,35 +180,36 @@ describe('人员管理的姓名与分组', () => {
     await expect.poll(() => requests.put.mock.calls[1]).toEqual(['/people/p1', { name: '李四' }])
   })
 
-  it('照片补录使用人员 ID 和文件，不提交姓名或分组更新', async () => {
+  it('照片补录进入添加页，不在列表直接上传', async () => {
     const qc = client()
     qc.setQueryData(['people'], [person()])
     requests.get.mockResolvedValue({ data: [person()] })
-    requests.post.mockResolvedValue({ data: { accepted: 1, rejected: [] } })
-    await render(form(qc, <People />))
-    const fileInput = document.querySelector<HTMLInputElement>('input[type="file"]')!
-    const files = new DataTransfer()
-    files.items.add(new File(['test-photo'], 'photo.jpg', { type: 'image/jpeg' }))
-    fileInput.files = files.files
-    fileInput.dispatchEvent(new Event('change', { bubbles: true }))
-    await expect.poll(() => requests.post.mock.calls.length).toBe(1)
-    const [url, body] = requests.post.mock.calls[0] as [string, FormData]
-    expect(url).toBe('/people/p1/photos')
-    expect([...body.keys()]).toEqual(['files'])
-    expect((body.get('files') as File).name).toBe('photo.jpg')
-    expect(requests.put).not.toHaveBeenCalled()
+    const screen = await render(form(qc, <People />))
+    await expect.element(screen.getByRole('link', { name: /补录/ })).toHaveAttribute('href', '/people/add?person=p1')
+    expect(document.querySelector('input[type="file"]')).toBeNull()
+    expect(requests.post).not.toHaveBeenCalled()
   })
 
-  it('重新开始改名时使用最新服务器姓名，不提交旧草稿', async () => {
+  it('点击人员照片打开大图，并显示注册时间', async () => {
+    const qc = client()
+    qc.setQueryData(['people'], [person({ has_photo: true, joined_at: '2026-03-01T12:00:00' })])
+    const screen = await render(form(qc, <People />))
+    expect(document.body.textContent).toMatch(/2026/)
+    await screen.getByRole('button', { name: '查看张三的照片' }).click()
+    await expect.element(screen.getByRole('dialog')).toBeVisible()
+    await expect.element(screen.getByRole('img', { name: '张三的照片' })).toBeVisible()
+  })
+
+  it('重新开始编辑时使用最新服务器姓名，不提交旧草稿', async () => {
     const qc = client()
     qc.setQueryData(['people'], [person()])
     const screen = await render(form(qc, <People />))
-    await screen.getByRole('button', { name: '改名', exact: true }).click()
+    await screen.getByRole('button', { name: '编辑', exact: true }).click()
     await screen.getByRole('textbox', { name: '修改张三的姓名' }).fill('未保存草稿')
-    await screen.getByRole('button', { name: '改名', exact: true }).click()
+    await screen.getByRole('button', { name: '编辑', exact: true }).click()
     qc.setQueryData(['people'], [person({ name: '新姓名' })])
     await expect.element(screen.getByText('新姓名', { exact: true })).toBeVisible()
-    await screen.getByRole('button', { name: '改名', exact: true }).click()
+    await screen.getByRole('button', { name: '编辑', exact: true }).click()
     await expect.element(screen.getByRole('textbox', { name: '修改新姓名的姓名' })).toHaveValue('新姓名')
   })
 })

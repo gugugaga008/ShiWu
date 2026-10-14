@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { Check, ImagePlus, Pencil, Trash2, UserPlus, UserRound, Users } from 'lucide-react'
@@ -14,6 +14,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { usePhotoAdd } from '@/hooks/use-photo-add'
 import { api, errMsg, type Person, withToken } from '@/lib/api'
 import { Page } from './page'
+import { SnapshotDialog } from './snapshot-dialog'
 
 export function People() {
   const qc = useQueryClient()
@@ -69,7 +70,7 @@ function PersonRow({ p, onChanged }: { p: Person; onChanged: () => void }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(p.name)
   const [del, setDel] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
+  const [photoOpen, setPhotoOpen] = useState(false)
   const update = useMutation({
     mutationFn: async (body: { name?: string; role?: string }) => (await api.put(`/people/${p.person_id}`, body)).data,
     onSuccess: () => {
@@ -90,30 +91,24 @@ function PersonRow({ p, onChanged }: { p: Person; onChanged: () => void }) {
     },
     onError: (e) => toast.error(errMsg(e)),
   })
-  const upload = useMutation({
-    mutationFn: async (files: FileList) => {
-      const fd = new FormData()
-      Array.from(files).forEach((f) => fd.append('files', f))
-      return (await api.post(`/people/${p.person_id}/photos`, fd)).data
-    },
-    onSuccess: (d) => {
-      if (d.accepted > 0) toast.success(`补录完成：通过 ${d.accepted} 张，拒绝 ${d.rejected?.length ?? 0} 张`)
-      else toast.error('未录入任何照片，请更换清晰正脸照片后重试')
-      if (fileRef.current) fileRef.current.value = ''
-      onChanged()
-    },
-    onError: (e) => {
-      if (fileRef.current) fileRef.current.value = ''
-      toast.error(errMsg(e))
-    },
-  })
+  const photoSrc = p.has_photo ? withToken(`/people/${p.person_id}/photo.jpg`) : ''
   return (
     <TableRow>
       <TableCell>
-        <Avatar className='size-10'>
-          {p.has_photo ? <AvatarImage src={withToken(`/people/${p.person_id}/photo.jpg`)} alt={`${p.name}的照片`} /> : null}
-          <AvatarFallback><UserRound className='size-4' /></AvatarFallback>
-        </Avatar>
+        {p.has_photo ? (
+          <button type='button' className='rounded-full' onClick={() => setPhotoOpen(true)}>
+            <Avatar className='size-10'>
+              <AvatarImage src={photoSrc} alt={`${p.name}的照片`} />
+              <AvatarFallback><UserRound className='size-4' /></AvatarFallback>
+            </Avatar>
+            <span className='sr-only'>查看{p.name}的照片</span>
+          </button>
+        ) : (
+          <Avatar className='size-10'>
+            <AvatarFallback><UserRound className='size-4' /></AvatarFallback>
+          </Avatar>
+        )}
+        <SnapshotDialog open={photoOpen} onOpenChange={setPhotoOpen} title={p.name} description='人员照片' imageSrc={photoSrc} imageAlt={`${p.name}的照片`} />
       </TableCell>
       <TableCell>
         {editing ? (
@@ -155,19 +150,11 @@ function PersonRow({ p, onChanged }: { p: Person; onChanged: () => void }) {
         {p.joined_at ? new Date(p.joined_at).toLocaleString('zh-CN', { hour12: false }) : '—'}
       </TableCell>
       <TableCell className='text-end'>
-        <input
-          ref={fileRef}
-          type='file'
-          accept='image/*'
-          multiple
-          hidden
-          onChange={(e) => e.target.files?.length && upload.mutate(e.target.files)}
-        />
         <Button size='sm' variant='ghost' onClick={() => { setName(p.name); setEditing((v) => !v) }}>
-          <Pencil /> 改名
+          <Pencil /> 编辑
         </Button>
-        <Button size='sm' variant='ghost' disabled={upload.isPending} onClick={() => fileRef.current?.click()}>
-          <ImagePlus /> 补录
+        <Button size='sm' variant='ghost' asChild>
+          <Link to='/people/add' search={{ person: p.person_id }}><ImagePlus /> 补录</Link>
         </Button>
         <Button size='sm' variant='ghost' className='text-destructive' onClick={() => setDel(true)}>
           <Trash2 /> 删除

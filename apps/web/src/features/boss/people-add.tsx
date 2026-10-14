@@ -21,11 +21,26 @@ const MODES = [
   { value: 'live', label: '现场采集添加', icon: Camera },
 ] as const
 
-export function PeopleAdd({ initialMode = 'photo' }: { initialMode?: AddMode }) {
+export function PeopleAdd({ initialMode = 'photo', personId }: { initialMode?: AddMode; personId?: string }) {
   const [selection, setSelection] = useState({ initialMode, mode: initialMode })
   const [visited, setVisited] = useState<Record<AddMode, boolean>>(() => ({
     photo: true, file: initialMode === 'file', live: initialMode === 'live',
   }))
+  const { data: people = [] } = useQuery({
+    queryKey: ['people'],
+    queryFn: async () => (await api.get<Person[]>('/people')).data,
+    enabled: !!personId,
+  })
+  const target = people.find((item) => item.person_id === personId)
+  useEffect(() => {
+    if (personId && target) usePhotoAdd.getState().beginSupplement(target)
+    else if (!personId) {
+      const draft = usePhotoAdd.getState()
+      if (draft.supplementing && !draft.pending) draft.reset()
+    }
+    // 只按人员 ID 进入补录，避免人员列表刷新清空已选照片。
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅跟随 personId
+  }, [personId, target?.person_id])
   // 搜索参数导航仅切换可见工作区，不重建正在采集的组件。
   if (selection.initialMode !== initialMode) {
     setSelection({ initialMode, mode: initialMode })
@@ -37,7 +52,8 @@ export function PeopleAdd({ initialMode = 'photo' }: { initialMode?: AddMode }) 
     setSelection({ initialMode, mode: value })
   }
   return (
-    <Page title='添加人员' desc='选择照片、视频文件或现场采集；姓名区分个人，分组用于分类。'>
+    <Page title={target ? `补录「${target.name}」` : '添加人员'} desc={target ? '可用照片或视频补录人脸，不会修改姓名或分组，也不会新建人员。' : '选择照片、视频文件或现场采集；姓名区分个人，分组用于分类。'}>
+      {target && <p className='mb-4 text-sm'>正在为「{target.name}」补录，可切换照片或视频。</p>}
       <div role='group' aria-label='添加方式' className='mb-4 flex flex-wrap gap-2'>
         {MODES.map(({ value, label, icon: Icon }) => (
           <Button key={value} variant={mode === value ? 'default' : 'outline'} aria-pressed={mode === value} onClick={() => select(value)}>
@@ -47,15 +63,15 @@ export function PeopleAdd({ initialMode = 'photo' }: { initialMode?: AddMode }) 
       </div>
       {/* 未进入过的采集工作区不挂载，避免照片添加页就去枚举/打开摄像头。 */}
       <section hidden={mode !== 'photo'} aria-label='照片添加工作区'><PhotoAdd /></section>
-      {visited.file && <section hidden={mode !== 'file'} aria-label='视频文件添加工作区'><CaptureWorkspace mode='file' /></section>}
-      {visited.live && <section hidden={mode !== 'live'} aria-label='现场采集添加工作区'><CaptureWorkspace mode='live' /></section>}
+      {visited.file && <section hidden={mode !== 'file'} aria-label='视频文件添加工作区'><CaptureWorkspace mode='file' targetPerson={target} /></section>}
+      {visited.live && <section hidden={mode !== 'live'} aria-label='现场采集添加工作区'><CaptureWorkspace mode='live' targetPerson={target} /></section>}
     </Page>
   )
 }
 
 function PhotoAdd() {
   const qc = useQueryClient()
-  const { name, role, files, person, report, error, pending, creationUncertain, uploadUncertain, update, submit, reset, resumePerson, clearUncertainUpload } = usePhotoAdd()
+  const { name, role, files, person, report, error, pending, creationUncertain, uploadUncertain, supplementing, update, submit, reset, resumePerson, clearUncertainUpload } = usePhotoAdd()
   const fileRef = useRef<HTMLInputElement>(null)
   const [verified, setVerified] = useState(false)
   const [selectedId, setSelectedId] = useState('')
@@ -134,8 +150,8 @@ function PhotoAdd() {
           </div>
           {files.length ? <p className='text-sm text-muted-foreground'>已选择 {files.length} 张：{files.slice(0, 5).map((file) => file.name).join('、')}{files.length > 5 ? '…' : ''}</p> : <p className='flex items-center gap-2 text-sm text-muted-foreground'><ImagePlus className='size-4' aria-hidden />尚未选择照片，请选择同一人的正脸及不同角度照片。</p>}
         </div>
-        {person && <p className='text-sm'>当前人员：{person.name}。再次上传仅补录照片，不修改姓名或分组，不会重复创建人员。</p>}
-        {report && <p role='status' className='text-sm'>本次通过 {report.accepted} 张，拒绝 {report.rejected?.length ?? 0} 张。{report.accepted > 0 && '可继续选择照片补录，或添加下一位。'}</p>}
+        {person && !supplementing && <p className='text-sm'>当前人员：{person.name}。照片未通过时人员已保留，可更换照片重试，不会重复创建。</p>}
+        {report && <p role='status' className='text-sm'>本次通过 {report.accepted} 张，拒绝 {report.rejected?.length ?? 0} 张。{supplementing && report.accepted > 0 && '可继续选择照片补录。'}</p>}
         {!!report?.rejected?.length && <p className='text-sm text-muted-foreground'>未通过：{report.rejected.slice(0, 5).map((item) => `${item.source ?? '照片'}（${item.reasons?.join('、') || '质量不合格'}）`).join('；')}{report.rejected.length > 5 ? '…' : ''}</p>}
         {error && <p role='alert' className='text-sm text-destructive'>{error}</p>}
         {(creationUncertain || uploadUncertain) && <div className='grid gap-3 rounded-md border p-3'>
@@ -152,9 +168,9 @@ function PhotoAdd() {
         </div>}
         <div className='flex flex-wrap gap-2'>
           <Button disabled={!name.trim() || !files.length || pending || creationUncertain || uploadUncertain} onClick={upload}>
-            <Upload aria-hidden />{pending ? '正在上传…' : person ? '重试 / 补录照片' : '上传并添加人员'}
+            <Upload aria-hidden />{pending ? '正在上传…' : person ? (supplementing ? '补录照片' : '重试 / 补录照片') : '上传并添加人员'}
           </Button>
-          {person && <Button variant='outline' disabled={pending || uploadUncertain} onClick={() => { reset(); setVerified(false); setSelectedId('') }}>添加下一位</Button>}
+          {person && !supplementing && <Button variant='outline' disabled={pending || uploadUncertain} onClick={() => { reset(); setVerified(false); setSelectedId('') }}>添加下一位</Button>}
         </div>
       </CardContent>
     </Card>

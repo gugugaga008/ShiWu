@@ -25,7 +25,7 @@ const STATUS: Record<string, string> = {
 type PipelineStatus = { pipelines: { running: boolean; source: { kind: string; uri: string } }[] }
 const sourceName = (uri: string) => (uri.startsWith('push://') ? '本机摄像头' : uri.split('/').pop() || uri)
 
-export function CaptureWorkspace({ mode }: { mode: 'file' | 'live' }) {
+export function CaptureWorkspace({ mode, targetPerson }: { mode: 'file' | 'live'; targetPerson?: Person }) {
   const qc = useQueryClient()
   const kinds: SourceValue['kind'][] = mode === 'file' ? ['file'] : ['camera', 'url']
   const [src, setSrc] = useState<SourceValue>({ kind: mode === 'file' ? 'file' : 'camera', uri: '' })
@@ -114,7 +114,7 @@ export function CaptureWorkspace({ mode }: { mode: 'file' | 'live' }) {
             {mode === 'file' ? <Video className='size-5' /> : <Camera className='size-5' />}
             {mode === 'file' ? '1. 视频文件添加：选择文件并分析' : '1. 现场采集添加：选择摄像头或网络流'}
           </CardTitle>
-          <CardDescription>候选人物分别填写姓名与分组；切换添加方式不会中断当前任务。</CardDescription>
+          <CardDescription>{targetPerson ? `正在为「${targetPerson.name}」补录；分析后可把候选合并到此人，不会改姓名或分组。` : '候选人物分别填写姓名与分组；切换添加方式不会中断当前任务。'}</CardDescription>
         </CardHeader>
         <CardContent className='grid gap-4 lg:grid-cols-[1fr_160px_auto] lg:items-end'>
           <SourcePicker value={src} onChange={setSrc} kinds={kinds} />
@@ -189,6 +189,7 @@ export function CaptureWorkspace({ mode }: { mode: 'file' | 'live' }) {
                 sid={cap.id}
                 c={c}
                 knownPerson={people.find((p) => p.person_id === c.known_person_id)}
+                targetPerson={targetPerson}
                 checked={selected.includes(c.id)}
                 onCheck={(v) => setSelected((s) => (v ? [...s, c.id] : s.filter((x) => x !== c.id)))}
                 onChanged={refresh}
@@ -205,6 +206,7 @@ function ClusterCard({
   sid,
   c,
   knownPerson,
+  targetPerson,
   checked,
   onCheck,
   onChanged,
@@ -212,6 +214,7 @@ function ClusterCard({
   sid: string
   c: Cluster
   knownPerson?: Person
+  targetPerson?: Person
   checked: boolean
   onCheck: (v: boolean) => void
   onChanged: () => void
@@ -219,12 +222,13 @@ function ClusterCard({
   const known = !!c.known_person_id
   const [name, setName] = useState(c.name ?? '')
   const [role, setRole] = useState(c.role && c.role !== 'ignore' ? c.role : 'boss')
-  const [attach, setAttach] = useState(known)
+  const [attach, setAttach] = useState(!!targetPerson || known)
   const [picked, setPicked] = useState<number[]>([])
   const done = c.status !== 'pending'
-  const attaching = attach && known
-  const knownName = knownPerson?.name ?? c.known_name ?? c.known_person_id
-  const knownGroup = ROLE_LABEL[knownPerson?.role ?? ''] ?? '未设置'
+  const attachId = attach ? (targetPerson?.person_id ?? c.known_person_id) : undefined
+  const attaching = !!attachId
+  const knownName = targetPerson?.name ?? knownPerson?.name ?? c.known_name ?? c.known_person_id
+  const knownGroup = ROLE_LABEL[targetPerson?.role ?? knownPerson?.role ?? ''] ?? '未设置'
 
   const confirm = useMutation({
     mutationFn: async (action: 'enroll' | 'ignore') =>
@@ -232,8 +236,8 @@ function ClusterCard({
         await api.post(`/captures/${sid}/clusters/${c.id}/confirm`, {
           action,
           ...(action === 'enroll'
-            ? attaching
-              ? { person_id: c.known_person_id }
+            ? attaching && attachId
+              ? { person_id: attachId }
               : { name: name.trim(), role }
             : { role: 'ignore' }),
         })
@@ -332,7 +336,7 @@ function ClusterCard({
                 </div>
               </div>
             )}
-            {known && (
+            {(known || targetPerson) && (
               <label className='flex items-center gap-2 text-xs'>
                 <Checkbox checked={attach} onCheckedChange={(v) => setAttach(!!v)} />
                 补录到已有人员「{knownName}」（不勾选则新建独立人员）

@@ -6,7 +6,7 @@ type PhotoReport = { accepted: number; rejected?: { source?: string; reasons?: s
 const emptyDraft = () => ({
   name: '', role: 'staff', files: [] as File[], person: null as Person | null,
   report: null as PhotoReport | null, error: '', pending: false,
-  creationUncertain: false, uploadUncertain: false,
+  creationUncertain: false, uploadUncertain: false, supplementing: false,
 })
 type Draft = ReturnType<typeof emptyDraft>
 type PhotoAddState = Draft & {
@@ -14,6 +14,7 @@ type PhotoAddState = Draft & {
   submit: () => Promise<void>
   reset: () => void
   resumePerson: (person: Person) => void
+  beginSupplement: (person: Person) => void
   clearUncertainUpload: () => void
   dropGonePerson: () => void
 }
@@ -26,6 +27,11 @@ export const usePhotoAdd = create<PhotoAddState>((set, get) => ({
   resumePerson: (person) => {
     if (!get().pending && get().creationUncertain) {
       set({ person, name: person.name, role: person.role ?? '', creationUncertain: false, error: '' })
+    }
+  },
+  beginSupplement: (person) => {
+    if (!get().pending) {
+      set({ ...emptyDraft(), person, name: person.name, role: person.role ?? 'staff', supplementing: true })
     }
   },
   clearUncertainUpload: () => {
@@ -55,8 +61,10 @@ export const usePhotoAdd = create<PhotoAddState>((set, get) => ({
       if (!Number.isInteger(result?.accepted) || result.accepted < 0) throw new Error('上传结果不完整')
       set({ report: result })
       if (result.accepted > 0) {
-        set({ files: [] })
-        toast.success(`已录入：${target.name}，通过 ${result.accepted} 张照片`)
+        const rejected = result.rejected?.length ?? 0
+        toast.success(`已录入：${target.name}，通过 ${result.accepted} 张${rejected ? `，拒绝 ${rejected} 张` : ''}`)
+        if (get().supplementing) set({ files: [], report: result, error: '' })
+        else set(emptyDraft())
       } else {
         const message = '未录入任何照片；人员已保留，请更换清晰正脸照片后重试，不会重复创建人员。'
         set({ error: message })
