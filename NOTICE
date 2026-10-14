@@ -34,6 +34,12 @@ Electron（MIT）及图标 / 音效素材归属见 `licenses/desktop-NOTICE.md`�
 
 来自 Pexels（Pexels License）。**不随仓库分发**，用 `scripts/fetch_assets.sh` 拉取。
 
+### 5. 手机预览二维码
+
+- python-qrcode **8.2**：https://github.com/lincolnloop/python-qrcode/tree/v8.2
+- 许可：**BSD-3-Clause**，© 2011 Lincoln Loop；包含源自 pyqrnative 的 MIT 代码归属。
+- 随官方发行包提供的许可全文见 `licenses/qrcode/LICENSE`；二维码渲染复用已有 Pillow，不新增 PNG 编码依赖。
+
 ## 代码中的两处上游字面量
 
 `src/shiwu/core/cipher.py` 里保留了 `b"FACENOX\x00\x01"` 与 `"facenox-biometric-key"`。

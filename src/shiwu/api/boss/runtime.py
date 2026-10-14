@@ -23,6 +23,7 @@ from ...rules import DEFAULT_RULES, SERVER_ACTIONS, EventLog, RuleEngine, normal
 from ...notify import Mailer, RateLimiter, SmtpConfig, SnapshotStore, build_alert_email
 from ...stream.shared import SharedEngineView
 from .capture import CaptureConfig, CaptureSession
+from .mobile_preview import MobilePreview
 from . import bridge
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,7 @@ class BossRuntime:
         self._capture_engine = None  # 采集专用（引擎内部有 event loop，不能跨线程共用）
         self._engine_lock = threading.Lock()
         self.runners: Dict[str, SourceRunner] = {}
+        self.mobile_preview = MobilePreview(self)
         self._infer_lock = threading.Lock()
         self.events: Deque[dict] = deque(maxlen=300)
         self.ws_clients: set = set()
@@ -456,6 +458,8 @@ class BossRuntime:
         stopped = False
         for n in names:
             r = self.runners.pop(n, None)
+            if r:
+                self.mobile_preview.invalidate_runner(r)
             if r and r.pipeline:
                 r.pipeline.stop(5)
                 stopped = True

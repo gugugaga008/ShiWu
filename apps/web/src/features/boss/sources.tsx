@@ -13,6 +13,7 @@ import { api, errMsg, ROLE_LABEL, ROLE_VARIANT } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { EventsTable } from './events-table'
 import { type LiveFace, useLive } from './live'
+import { MobilePreview } from './mobile-preview'
 import { Page } from './page'
 import { SourcePicker, type SourceValue } from './source-picker'
 
@@ -50,7 +51,7 @@ export function Sources() {
   const [src, setSrc] = useState<SourceValue>({ kind: 'file', uri: '' })
   const [loop, setLoop] = useState(true)
   const [res, setRes] = useState('1280x720')
-  const { frames, events, connected } = useLive({ frames: true })
+  const { events, connected } = useLive()
   const { data: st } = useQuery({
     queryKey: ['pipeline'],
     queryFn: async () => (await api.get<PStatus>('/pipeline/status')).data,
@@ -85,7 +86,7 @@ export function Sources() {
         <Card>
           <CardHeader className='flex flex-row items-center justify-between'>
             <div>
-              <CardTitle>多画面预览</CardTitle>
+              <CardTitle>视频源状态 · 手机扫码预览</CardTitle>
               <CardDescription>
                 {items.length ? `运行中 ${items.filter((p) => p.running).length}/${items.length} 路 · 上限 ${st?.max_sources ?? 4} 路 · 共享一个识别引擎` : '没有运行中的视频源'}
               </CardDescription>
@@ -102,12 +103,11 @@ export function Sources() {
           <CardContent>
             {items.length === 0 ? (
               <div className='flex aspect-video items-center justify-center rounded-md bg-muted text-sm text-muted-foreground'>
-                在右侧添加视频源后显示带框画面
+                在右侧添加视频源后，通过手机扫码查看画面
               </div>
             ) : (
               <div className={cn('grid gap-3', items.length > 1 && 'md:grid-cols-2')}>
                 {items.map((p) => {
-                  const f = frames[p.name]
                   return (
                     <div key={p.name} className='overflow-hidden rounded-lg border'>
                       <div className='flex items-center justify-between gap-2 border-b bg-muted/40 px-3 py-1.5'>
@@ -127,15 +127,12 @@ export function Sources() {
                           </Button>
                         </div>
                       </div>
-                      <div className='flex aspect-video items-center justify-center bg-black/90'>
-                        {f ? (
-                          <img src={f.jpeg} alt={p.name} className='h-full w-full object-contain' />
-                        ) : (
-                          <span className='text-xs text-muted-foreground'>{p.error ?? '等待画面…'}</span>
-                        )}
+                      <div className='grid justify-items-center gap-3 bg-muted/20 px-3 py-8'>
+                        <p className='text-sm text-muted-foreground'>{p.error ?? '实时画面仅在手机上查看'}</p>
+                        <MobilePreview source={p.name} disabled={!p.running} />
                       </div>
                       <div className='space-y-1 p-2'>
-                        <FaceBadges faces={f?.faces ?? p.faces} />
+                        <FaceBadges faces={p.faces} />
                         {p.stats && (
                           <p className='text-xs text-muted-foreground'>
                             已处理 {p.stats.frames_processed} 帧 · {p.stats.avg_proc_ms}ms/帧

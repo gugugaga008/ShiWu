@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>识务 · 摄像头采集</title>
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src ws://127.0.0.1:*; media-src mediastream: blob:">
-<style>body{margin:0;background:#111;color:#ddd;font:12px sans-serif}video{width:100%;display:block}#s{padding:4px 8px}</style></head>
+<style>body{margin:0;background:#111;color:#ddd;font:12px sans-serif}video{width:100%;display:block;opacity:0;pointer-events:none}#s{padding:4px 8px}</style></head>
 <body><video id="v" autoplay muted playsinline></video><div id="s">启动中…</div>
 <script>
 // getUserMedia → canvas → JPEG → WebSocket /boss/camera/push（二进制，每帧一条）

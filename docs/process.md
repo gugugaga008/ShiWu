@@ -96,3 +96,23 @@
   - 前端 `pnpm --dir apps/web test`：9 个测试文件、71 条浏览器测试通过；`lint`：0 errors、3 warnings；`build`：TypeScript 与 Vite 构建通过。
   - 独立只读复核未发现本次表单同步与缓存键修复的 blocking 问题；该结论不替代上述实际运行结果。
 - **遗留事项**：缺视频素材的 14 条测试仍跳过；`filters.tsx` 保留 3 条 Fast Refresh 警告；未重新验证真机摄像头、完整桌面用户路径或三平台安装包。上游活体模型单独来源/许可、安装包许可文件纳入、发布 runner 和正式签名配置仍需后续核实，本次不打发布标签、不发布安装包。
+
+---
+
+## 26-10-13-2300 手机扫码实时预览
+
+- **目标**：摄像头、网络流与视频文件的实时画面统一通过手机扫码查看，电脑只显示状态和二维码，避免桌面暴露实时监控画面。
+- **涉及文件及主要修改**
+  - `apps/web/src/features/boss/sources.tsx`、`mobile-preview.tsx`、`mobile-preview.test.tsx`：移除桌面实时图像；新增按需二维码弹窗、网卡切换、过期重试、关闭/卸载与迟到响应撤销；新增 6 条浏览器回归测试。
+  - `src/shiwu/api/boss/mobile_preview.py`、`routes.py`、`runtime.py`、`src/shiwu/core/lifespan.py`：独立临时只读 HTTP 预览，实际绑定所选本机私网 IPv4；不同网卡独立端口，会话绑定单源运行实例与网卡，最多 8 个、最长 10 分钟；停止/替换/到期/撤销关闭相应监听，服务退出清理。手机约每秒 4 次轮询已有 JPEG；短凭据置于 fragment、通过 Authorization 传递，禁止缓存与外部资源，不复用主 Token 或开放管理 API。
+  - `tests/test_mobile_preview.py`：新增 35 个真实 HTTP/二维码/安全与生命周期用例，包括单源隔离、跨网卡凭据拒绝、关闭期间重建并发交错、连接资源上限与无请求自动过期。
+  - `apps/desktop/src/windows/camera.html`：采集视频保持解码但透明显示，诊断窗口也不展示画面。`pyproject.toml`、`NOTICE`、`licenses/qrcode/LICENSE`：经用户确认新增固定版本 `qrcode==8.2` 与许可归属，复用现有 Pillow。`README.md`、`docs/architecture.md`、`docs/camera.md` 同步入口、网络边界与限制。
+- **影响范围**：仅实时视频预览；人脸采集缩略图和历史快照仍在管理界面展示。主服务回环监听与鉴权不变；手机 HTTP 无 TLS，仅用于同一可信局域网，不支持公网远程预览。
+- **验证结果**
+  - 独立临时数据目录执行后端全量测试：96 passed、14 skipped；桌面已有测试：11 passed。
+  - 前端全量浏览器测试：10 文件、77 passed；lint：0 errors、3 个既有 Fast Refresh warnings；TypeScript/Vite build 与 `git diff --check` 通过。
+  - Ego 浏览器实际操作独立服务与循环素材视频：电脑无实时 img/video，弹窗二维码经 OpenCV 真实解码；390px 手机视口显示带框画面并持续更新，fragment 清除；切换实际网卡后旧访问失效、新二维码可查看；关闭弹窗后手机清除画面并提示连接失效。已结束测试浏览器任务与临时服务，未修改日常数据。
+  - 独立只读审查发现全网卡监听范围问题后，改为所选网卡实际绑定；修复后的复核未发现 blocking。审查不替代上述运行验证。
+- **遗留事项**：14 个素材相关测试仍跳过；真实手机相机扫码、真实摄像头授权/持续采集、Windows/Linux 网卡枚举与三平台安装包未完成真机验证。Electron 模拟摄像头的实际运行校验受环境启动超时限制，仍需人工验证透明采集窗口持续产帧、同 Wi-Fi 手机可看、关闭弹窗后无法继续查看。未提交、推送或发布。
+
+26-10-14-1601 | `tests/test_mobile_preview.py`、`licenses/qrcode/LICENSE`、`docs/process.md` | 提交前复验确认 OpenCV 通用二维码定位器存在随机矩阵定位盲区；测试增加 ArUco 独立真实解码回退及回归断言，不跳过解码、不修改业务二维码或弱化安全校验；移除二维码许可的一处行尾空格，不改许可正文。100 个随机样本中通用定位器未解码 7 个，ArUco 均恢复原始内容 | 全后端 97 passed、14 skipped；前端 77 passed；桌面 11 passed；lint 0 errors、3 个既有 warnings；TypeScript/Vite build、diff 空白检查通过。16 个待提交文件的常见凭据模式扫描无匹配；此前真机与跨平台验证限制保持不变。

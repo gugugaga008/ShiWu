@@ -25,6 +25,7 @@ dependencies = [
     "lap==0.5.13",
     "scikit-learn==1.9.1",
     "pillow==12.3.0",
+    "qrcode==8.2",
     "websockets==17.2",
     "cryptography==46.0.5",
     "keyring==25.1.0",

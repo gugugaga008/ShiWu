@@ -18,6 +18,7 @@ from ...rules import ACTION_TYPES
 from . import bridge
 from .capture import CaptureConfig
 from .runtime import ROLES, runtime
+from .mobile_preview import SECURITY_HEADERS
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/boss", tags=["boss"])
@@ -155,6 +156,24 @@ def preview(source: Optional[str] = None):
     if not r or not r.latest_jpeg:
         raise HTTPException(404, "暂无画面")
     return Response(r.latest_jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+# ------------------------------------------------------------------ 临时手机预览
+class MobilePreviewReq(BaseModel):
+    source: str = Field(..., min_length=1, max_length=32)
+    address: Optional[str] = Field(None, min_length=1, max_length=15)
+
+
+@router.post("/mobile-preview")
+def mobile_preview_create(req: MobilePreviewReq, response: Response):
+    response.headers.update(SECURITY_HEADERS)
+    return runtime.mobile_preview.create(req.source, req.address)
+
+
+@router.delete("/mobile-preview/{sid}")
+def mobile_preview_revoke(sid: str, response: Response):
+    response.headers.update(SECURITY_HEADERS)
+    return runtime.mobile_preview.revoke(sid)
 
 
 # ------------------------------------------------------------------ 一键采集

@@ -1,6 +1,6 @@
 # 识务（ShiWu）— 架构与实测
 
-本机人脸识别预警产品。摄像头画面、人脸特征、事件记录全部留在本机。
+本机人脸识别预警产品。人脸识别、特征与事件记录留在本机；主动启用手机预览时，实时画面通过临时局域网只读服务传给手机。
 
 > 快速上手看 `README.md`；本文记录架构决策、接口清单与实测数据。
 
@@ -45,6 +45,12 @@
 | 桌面 | Electron | 托盘常驻；打包走 electron-builder |
 | Python | ≥ 3.11（开发用 3.13） | `pyproject.toml` 定义依赖 |
 
+### 手机预览边界
+
+管理服务继续只监听回环地址。用户点击「手机预览」才启动独立临时局域网 HTTP 服务，实际只绑定所选本机私网 IPv4，不监听全部网卡；不同网卡使用独立临时端口，会话凭据不能跨网卡使用。手机页面轮询管道已有 JPEG，不另开摄像头、不转发管理 API、人员库或事件接口。电脑端实时预览替换为状态与二维码，Electron 采集视频透明显示；人脸采集缩略图与历史快照不受影响。
+
+每个预览会话使用独立随机访问凭据，只绑定当前一路运行实例，最长 10 分钟。二维码凭据置于 URL fragment，手机脚本通过 `Authorization: Bearer` 请求画面，避免凭据进入服务请求地址和日志；响应禁止缓存，页面不加载外部资源。关闭弹窗、视频源停止或替换、到期均撤销访问；无有效会话后关闭临时监听。局域网 HTTP 无 TLS，二维码持有者可在有效期查看该路画面，因此仅限可信网络，不做公网暴露或云中转。
+
 ## 三、路径约定
 
 所有路径只从 `src/shiwu/paths.py` 取，改目录结构只改这一个文件。
@@ -88,6 +94,8 @@
 | GET | `/boss/snapshots/{...}` | 触发快照（需机器密钥解密） |
 | POST | `/boss/actions/result` | 桌面端回报动作执行结果 |
 | GET | `/boss/roles` | 角色枚举 |
+| POST | `/boss/mobile-preview` | 创建单路手机预览会话（source、可选本机 address）；返回二维码、到期时间与本机网卡地址 |
+| DELETE | `/boss/mobile-preview/{id}` | 撤销手机预览会话（仍需管理会话 Token） |
 | WS | `/boss/ws` | 事件推送（识别 / 动作 / 设置变更） |
 | WS | `/boss/camera/push` | 摄像头采集窗口推帧 |
 
@@ -105,7 +113,7 @@
 | 备份 | `POST /backup/export`、`/backup/import`、`/backup/import-encrypted` |
 | WebSocket | `/ws/detect/{client_id}`、`/ws/notifications/{client_id}` |
 
-完整 OpenAPI：`GET /openapi.json`（静态路由 88 条）。
+完整 OpenAPI：`GET /openapi.json`。
 
 ## 五、实测数据
 

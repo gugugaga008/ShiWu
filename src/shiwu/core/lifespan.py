@@ -178,7 +178,12 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to initialize models: {e}")
         raise
 
-    yield
+    try:
+        yield
+    finally:
+        from shiwu.api.boss.runtime import runtime
+
+        await asyncio.to_thread(runtime.mobile_preview.close)
 
     logger.info("Shutting down...")
     try:
