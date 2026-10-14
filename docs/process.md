@@ -146,3 +146,13 @@
 - **影响范围**：管理导航与设置入口、暂停语义（停采集）、规则字段 `min_confirm_s`/`min_face_mode`（旧 `min_frames` 换算）、照片入库门槛、桌面系统动作。已有 `rules.json` 用户不受默认规则变更影响。无新依赖、不改鉴权与 CI。
 - **验证结果**：后端全量 **146 passed、14 skipped**（缺部分既有素材）、1 条既有 Starlette/httpx 弃用警告；前端定向 **8 文件、75 passed**；桌面 **13 passed**。联调中补修：总览暂停后管道停止仍显示「已暂停」可恢复；测试夹具补 `runners={}` 后并发用例通过。未跑全量前端 lint/build，未做真机摄像头/手机扫码验收。
 - **遗留事项**：暂停后 Mac 摄像头指示灯、证件照拖入、规则测试动作重复触发、锁屏/最小化/声音/开机自启仍需真机确认。不发布安装包。
+
+---
+
+## 26-10-15-0049 体验修复：启动摄像头、默认规则、通知、人员与搜索
+
+- **目标**：按语音体验记录分批修：打开软件不自动点亮摄像头；默认老板/领导规则仅系统通知；通知失败用应用浮窗；人员列表头像与证件照预览；删人后表单不再锁旧 ID；时间线快照保留；Cmd+P 搜人员/设置/拼音。
+- **涉及文件及主要修改**：`camera_source.py` 枚举不再 `VideoCapture`；`auto_monitor` 默认关，启动 `start-defaults?cameras=0`，添加页懒挂载现场采集。默认规则仅 `notify`。桌面申请通知权限，macOS 同时 toast。人员 `portraits/` 头像、拖放预览与选中底色；删人清照片草稿、404 可重建；删人不 `purge` 时间线。Cmd+P 加人名与设置项拼音/缩写。
+- **影响范围**：启动采集与隐私指示灯、全新安装默认规则、系统通知可见性、人员列表/添加表单、时间线保留、命令面板。已有 `rules.json` 与已保存设置不受默认值影响。不改鉴权与 CI。未动 `apps/web/src/features/boss/mobile-preview.test.tsx`。
+- **验证结果**：`tests/test_camera.py`+`test_rules.py` **17 passed、3 skipped**；`test_api.py`/`test_rules_v11.py` **9 passed、8 skipped**（缺素材或解释器，含人员删除/头像的 e2e 未跑）；桌面 `actions.test.js` **8 passed**；前端 `people-add` **19 passed**、`search-provider` **20 passed**、`settings`+`rules` **10 passed**。未跑全量前端/后端，未做真机摄像头指示灯与 macOS 通知授权验收。
+- **遗留事项**：真机确认打开软件摄像头灯不亮、系统通知权限弹窗、删人后时间线缩略图仍在。不发布安装包。
