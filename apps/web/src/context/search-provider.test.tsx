@@ -1,3 +1,5 @@
+import { type ReactNode } from 'react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, type RenderResult } from 'vitest-browser-react'
 import { userEvent } from 'vitest/browser'
@@ -5,13 +7,15 @@ import { SearchProvider } from '@/context/search-provider'
 import { useSettingsDialog } from '@/hooks/use-settings-dialog'
 import { Search } from '@/components/search'
 import { sidebarData } from '@/components/layout/data/sidebar-data'
+import { pinyinOf, searchTokens } from '@/lib/search-text'
 
-const COMMAND_MENU_PLACEHOLDER = '搜索页面或命令…'
+const COMMAND_MENU_PLACEHOLDER = '搜索页面、人员、设置或命令…'
 const originalNavGroups = sidebarData.navGroups
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   setTheme: vi.fn(),
+  people: [] as { person_id: string; name: string; role: string | null; role_label: string; has_face_data: boolean; templates: number }[],
 }))
 
 vi.mock('@tanstack/react-router', async (importOriginal) => {
@@ -26,10 +30,25 @@ vi.mock('@/context/theme-provider', () => ({
   useTheme: () => ({ setTheme: mocks.setTheme }),
 }))
 
+vi.mock('@/lib/api', async (original) => {
+  const actual = await original<typeof import('@/lib/api')>()
+  return {
+    ...actual,
+    api: {
+      get: vi.fn(async (url: string) => url === '/people' ? { data: mocks.people } : { data: [] }),
+    },
+  }
+})
+
 type ShortcutModifier = 'Control' | 'Meta'
 
+function wrap(ui: ReactNode = null) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return <QueryClientProvider client={qc}><SearchProvider>{ui}</SearchProvider></QueryClientProvider>
+}
+
 async function renderWithSearchProvider() {
-  return await render(<SearchProvider>{null}</SearchProvider>)
+  return await render(wrap())
 }
 
 /**
@@ -62,7 +81,9 @@ async function openCommandPalette(
 describe('SearchProvider and CommandMenu', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.people = []
     useSettingsDialog.getState().setOpen(false)
+    useSettingsDialog.getState().setSection('sources')
   })
 
   afterEach(() => {
@@ -118,12 +139,12 @@ describe('SearchProvider and CommandMenu', () => {
     ['Cmd', 'Meta'],
   ] as const)('opens search with %s + P from any focused element and prevents printing', async (_label, modifier) => {
     const screen = await render(
-      <SearchProvider>
+      wrap(<>
         <button>页面按钮</button>
         <input aria-label='页面输入框' onKeyDown={(event) => event.stopPropagation()} />
         <textarea aria-label='多行输入框' onKeyDown={(event) => event.stopPropagation()} />
         <div contentEditable suppressContentEditableWarning role='textbox' aria-label='富文本输入框' onKeyDown={(event) => event.stopPropagation()} />
-      </SearchProvider>
+      </>)
     )
     const prevented: boolean[] = []
     const observe = (event: KeyboardEvent) => {
@@ -186,7 +207,7 @@ describe('SearchProvider and CommandMenu', () => {
   })
 
   it('advertises P and K shortcuts and opens search from its button', async () => {
-    const screen = await render(<SearchProvider><Search placeholder='全局搜索' /></SearchProvider>)
+    const screen = await render(wrap(<Search placeholder='全局搜索' />))
     const button = screen.getByRole('button', { name: /全局搜索/ })
     await expect.element(button).toHaveAttribute('aria-keyshortcuts', 'Meta+P Control+P Meta+K Control+K')
     await userEvent.click(button)
@@ -275,5 +296,31 @@ describe('SearchProvider and CommandMenu', () => {
     await expect
       .element(screen.getByText('无结果'))
       .toBeInTheDocument()
+  })
+
+  it('拼音与缩写能匹配人员管理和自启动', () => {
+    expect(pinyinOf('人员').initials).toBe('ry')
+    expect(searchTokens('开机自启', ['自启动', 'zidongqi', 'zdq'])).toEqual(expect.arrayContaining(['自启动', 'ziqidong', 'zqd', 'zidongqi', 'zdq']))
+  })
+
+  it('输入拼音缩写可搜到人员管理，输入自启动打开设置分区', async () => {
+    const screen = await renderWithSearchProvider()
+    await openCommandPalette(screen)
+    await userEvent.fill(screen.getByPlaceholder(COMMAND_MENU_PLACEHOLDER), 'ry')
+    await userEvent.click(screen.getByRole('option', { name: '人员管理 人员列表' }))
+    expect(mocks.navigate).toHaveBeenCalledWith({ to: '/people' })
+    await openCommandPalette(screen)
+    await userEvent.fill(screen.getByPlaceholder(COMMAND_MENU_PLACEHOLDER), '自启动')
+    await userEvent.click(screen.getByRole('option', { name: '开机自启' }))
+    expect(useSettingsDialog.getState()).toMatchObject({ open: true, section: 'startup' })
+  })
+
+  it('能按姓名搜到人员并跳到人员页', async () => {
+    mocks.people = [{ person_id: 'p1', name: '本人', role: 'boss', role_label: '老板', has_face_data: true, templates: 1 }]
+    const screen = await renderWithSearchProvider()
+    await openCommandPalette(screen)
+    await userEvent.fill(screen.getByPlaceholder(COMMAND_MENU_PLACEHOLDER), '本人')
+    await userEvent.click(screen.getByRole('option', { name: /本人/ }))
+    expect(mocks.navigate).toHaveBeenCalledWith({ to: '/people' })
   })
 })
