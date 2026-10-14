@@ -47,6 +47,14 @@ def test_distance():
     assert not near_enough({"min_face_px": 150}, {"face_w": 120, "frame_w": 1280})
     assert not near_enough({"min_face_ratio": 0.2}, {"face_w": 120, "frame_w": 1280})
     assert near_enough({"min_face_ratio": 0.05}, {"face_w": 120, "frame_w": 1280})
+    assert near_enough({"min_face_mode": ""}, {"face_w": 10, "frame_w": 1280})
+    # 旧数据两项都 >0 且 mode 空：只看宽度
+    both = {"min_face_px": 100, "min_face_ratio": 0.5}
+    assert near_enough(both, {"face_w": 120, "frame_w": 1280})
+    assert not near_enough({"min_face_mode": "ratio", "min_face_px": 10, "min_face_ratio": 0.2},
+                           {"face_w": 120, "frame_w": 1280})
+    assert near_enough({"min_face_mode": "px", "min_face_px": 100, "min_face_ratio": 0.9},
+                       {"face_w": 120, "frame_w": 1280})
 
 
 def test_person_rule_beats_role_rule_by_priority():

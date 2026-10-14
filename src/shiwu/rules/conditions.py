@@ -35,12 +35,22 @@ def in_schedule(schedule: Optional[List[dict]], ts: float) -> bool:
 
 
 def near_enough(rule: dict, face: dict) -> bool:
-    """距离条件：人脸宽度 ≥ min_face_px，且占画面宽度比例 ≥ min_face_ratio（0 表示不限）。"""
+    """距离条件：min_face_mode 为空则不限（旧数据仅一项 >0 时仍生效；两项都 >0 视为 px）。
+    px 只看宽度，ratio 只看占比。"""
     w = float(face.get("face_w") or 0)
     fw = float(face.get("frame_w") or 0)
-    if rule.get("min_face_px") and w < float(rule["min_face_px"]):
+    mode = rule.get("min_face_mode") or ""
+    px = float(rule.get("min_face_px") or 0)
+    ratio = float(rule.get("min_face_ratio") or 0)
+    if not mode and px > 0 and ratio > 0:
+        mode = "px"
+    if mode == "px":
+        return not px or w >= px
+    if mode == "ratio":
+        return not ratio or (fw > 0 and w / fw >= ratio)
+    if px and w < px:
         return False
-    if rule.get("min_face_ratio") and (fw <= 0 or w / fw < float(rule["min_face_ratio"])):
+    if ratio and (fw <= 0 or w / fw < ratio):
         return False
     return True
 

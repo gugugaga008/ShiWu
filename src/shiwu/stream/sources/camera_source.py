@@ -46,12 +46,59 @@ def fake_cameras() -> Dict[str, str]:
     return out
 
 
+def _collapse_consecutive_indices(cams: List[dict]) -> List[dict]:
+    """Mac 上同一物理设备常占连续索引；无名则每段连续 run 只留第一个。"""
+    if len(cams) <= 1:
+        return cams
+    out: List[dict] = []
+    run: List[dict] = [cams[0]]
+
+    def flush():
+        if not run:
+            return
+        keep = [run[0]]
+        seen = {run[0].get("device_name") or ""}
+        seen.discard("")
+        for item in run[1:]:
+            name = item.get("device_name") or ""
+            if name and name not in seen:
+                keep.append(item)
+                seen.add(name)
+        out.extend(keep)
+        run.clear()
+
+    for item in cams[1:]:
+        try:
+            cur, prev = int(item["id"]), int(run[-1]["id"])
+        except (TypeError, ValueError):
+            flush()
+            run.append(item)
+            continue
+        if cur == prev + 1:
+            run.append(item)
+        else:
+            flush()
+            run.append(item)
+    flush()
+    return out
+
+
+def _label_real_cameras(cams: List[dict]) -> None:
+    real = [c for c in cams if not c.get("fake")]
+    if len(real) == 1:
+        real[0]["name"] = "本机摄像头"
+    elif len(real) > 1:
+        for i, c in enumerate(real, 1):
+            c["name"] = f"摄像头 {i}"
+
+
 def list_cameras(probe_max: int = 4) -> List[dict]:
     """枚举可用摄像头：[{id, name, path, busy, fake}]"""
     cams: List[dict] = []
     for k, v in fake_cameras().items():
         cams.append({"id": k, "name": f"模拟摄像头 {k}（{Path(v).name}）", "path": v, "fake": True})
     sysfs = Path("/sys/class/video4linux")
+    real: List[dict] = []
     if platform.system() == "Linux":
         if sysfs.exists():
             for d in sorted(sysfs.glob("video*"), key=lambda p: int(p.name[5:] or 0)):
@@ -65,7 +112,7 @@ def list_cameras(probe_max: int = 4) -> List[dict]:
                 except OSError:
                     pass
                 name = (d / "name").read_text().strip() if (d / "name").exists() else d.name
-                cams.append({"id": idx, "name": name, "path": f"/dev/{d.name}", "fake": False})
+                real.append({"id": idx, "name": name, "path": f"/dev/{d.name}", "fake": False})
     else:
         # Windows / macOS 没有可靠的免打开枚举方式：探测前几个索引（被本应用占用的直接列出）
         backend = cv2.CAP_DSHOW if platform.system() == "Windows" else cv2.CAP_ANY
@@ -73,14 +120,21 @@ def list_cameras(probe_max: int = 4) -> List[dict]:
             sid = str(i)
             if any(c["id"] == sid for c in cams):
                 continue
+            device_name = ""
             if sid in _OPEN_DEVICES:
-                cams.append({"id": sid, "name": f"摄像头 {i}", "path": sid, "fake": False})
+                real.append({"id": sid, "path": sid, "fake": False, "device_name": device_name})
                 continue
             cap = cv2.VideoCapture(i, backend)
             ok = cap.isOpened()
             cap.release()
             if ok:
-                cams.append({"id": sid, "name": f"摄像头 {i}", "path": sid, "fake": False})
+                real.append({"id": sid, "path": sid, "fake": False, "device_name": device_name})
+        if platform.system() == "Darwin":
+            real = _collapse_consecutive_indices(real)
+    _label_real_cameras(real)
+    for c in real:
+        c.pop("device_name", None)
+        cams.append(c)
     for c in cams:
         c["busy"] = _OPEN_DEVICES.get(c["id"])
     return cams

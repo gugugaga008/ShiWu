@@ -32,23 +32,12 @@ ACTION_TYPES = {
 SERVER_ACTIONS = {"email"}   # 由服务端执行的动作；其余由桌面端执行
 
 DEFAULT_RULES: List[dict] = [
-    {"id": "whitelist", "role": "whitelist", "whitelist": True, "suppress_others": False, "priority": 100,
-     "enabled": True, "min_frames": 1, "cooldown_s": 0, "actions": [], "note": "白名单：路过不触发"},
-    {"id": "boss", "role": "boss", "enabled": True, "min_frames": 3, "cooldown_s": 30, "priority": 10,
+    {"id": "boss", "role": "boss", "enabled": True, "min_confirm_s": 0.5, "cooldown_s": 30, "priority": 10,
      "restore_on_leave": False, "leave_after_s": 15,
      "actions": [{"type": "notify", "params": {}}, {"type": "sound", "params": {}},
                  {"type": "cover", "params": {"style": "spreadsheet"}},
                  {"type": "minimize_all", "params": {}}],
-     "note": "识别到老板：通知 + 声音 + 遮挡 + 最小化"},
-    {"id": "leader", "role": "leader", "enabled": True, "min_frames": 3, "cooldown_s": 60, "priority": 10,
-     "actions": [{"type": "notify", "params": {}}], "note": "领导：仅通知"},
-    {"id": "staff", "role": "staff", "enabled": False, "min_frames": 5, "cooldown_s": 300, "priority": 10,
-     "actions": [{"type": "log", "params": {}}], "note": "同事：只记录"},
-    {"id": "ignore", "role": "ignore", "enabled": False, "min_frames": 5, "cooldown_s": 300, "priority": 10,
-     "actions": [], "note": "忽略"},
-    {"id": "stranger", "role": None, "stranger": True, "stranger_after_s": 5, "enabled": False,
-     "min_frames": 3, "cooldown_s": 120, "priority": 5,
-     "actions": [{"type": "notify", "params": {}}], "note": "陌生人：持续 5 秒未识别"},
+     "note": "识别到老板"},
 ]
 
 
@@ -78,7 +67,15 @@ def normalize_rules(rules: List[dict]) -> List[dict]:
         r["suppress_others"] = bool(r.get("suppress_others")) and r["whitelist"]
         default_pri = 100 if r["whitelist"] else 50 if r["person_ids"] else 5 if r["stranger"] else 10
         r["priority"] = int(r["priority"]) if r.get("priority") is not None else default_pri
-        r["min_frames"] = max(1, int(r.get("min_frames", 3)))
+        if r.get("min_confirm_s") is not None:
+            r["min_confirm_s"] = _num(r.get("min_confirm_s"), 0.5)
+            r["min_frames"] = max(1, int(round(r["min_confirm_s"] * 5) + 1))
+        elif r.get("min_frames") is not None:
+            r["min_frames"] = max(1, int(r["min_frames"]))
+            r["min_confirm_s"] = 0.0 if r["min_frames"] <= 1 else (r["min_frames"] - 1) / 5.0
+        else:
+            r["min_confirm_s"] = 0.5
+            r["min_frames"] = max(1, int(round(0.5 * 5) + 1))
         r["cooldown_s"] = _num(r.get("cooldown_s", 30), 30)
         r["stranger_after_s"] = _num(r.get("stranger_after_s", 5), 5)
         r["sources"] = [str(s) for s in (r.get("sources") or [])]
@@ -86,6 +83,8 @@ def normalize_rules(rules: List[dict]) -> List[dict]:
                           "end": w.get("end") or "24:00"} for w in (r.get("schedule") or [])]
         r["min_face_px"] = int(_num(r.get("min_face_px", 0), 0))
         r["min_face_ratio"] = min(1.0, _num(r.get("min_face_ratio", 0), 0))
+        mode = str(r.get("min_face_mode") or "")
+        r["min_face_mode"] = mode if mode in ("", "px", "ratio") else ""
         r["restore_on_leave"] = bool(r.get("restore_on_leave"))
         r["leave_after_s"] = _num(r.get("leave_after_s", 15), 15, 1.0)
         r["actions"] = [{"type": a["type"], "params": dict(a.get("params") or {})}
@@ -182,7 +181,8 @@ class RuleEngine:
                     self._streak[key] = prev
                 rule = next((r for r in rules if matches(r, f, source, now)), None)
                 plan.append((f, rule, prev))
-            suppress = any(r and r["whitelist"] and r["suppress_others"] and st[1] >= r["min_frames"]
+            suppress = any(r and r["whitelist"] and r["suppress_others"]
+                           and now - st[3] >= r["min_confirm_s"]
                            for _, r, st in plan)
             for f, rule, st in plan:
                 if rule is None or rule["whitelist"] or self.paused:
@@ -190,7 +190,7 @@ class RuleEngine:
                 if suppress:
                     self.suppressed += 1
                     continue
-                if st[1] < rule["min_frames"]:
+                if now - st[3] < rule["min_confirm_s"]:
                     continue
                 if rule["stranger"] and now - st[3] < rule["stranger_after_s"]:
                     continue

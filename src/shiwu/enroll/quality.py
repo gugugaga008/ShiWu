@@ -22,6 +22,12 @@ class QualityConfig:
     relaxed_yaw_ratio: float = 0.60
 
 
+# 照片注册：允许贴边证件照；视频采集仍用 QualityConfig 默认值
+PHOTO_ENROLL_QUALITY = QualityConfig(
+    min_edge_margin_px=0, edge_margin_ratio=0, min_det_conf=0.75,
+)
+
+
 @dataclass
 class QualityResult:
     ok: bool

@@ -24,12 +24,26 @@ from qrcode.image.pil import PilImage
 logger = logging.getLogger(__name__)
 _PRIVATE_NETWORKS = tuple(ipaddress.IPv4Network(n) for n in (
     "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
+_LAN_PREF = ipaddress.IPv4Network("192.168.0.0/16")
+_VIRTUAL_IFACE_PREFIXES = (
+    "utun", "awdl", "llw", "bridge", "docker", "veth", "cni", "virbr", "vmnet", "vnic")
 _PATH = re.compile(r"/preview/([a-f0-9]{24})(/frame\.jpg)?\Z")
 
 
+def _virtual_iface(name: str) -> bool:
+    n = (name or "").lower()
+    return any(n.startswith(p) for p in _VIRTUAL_IFACE_PREFIXES)
+
+
+def _private_ipv4_key(addr: str):
+    ip = ipaddress.IPv4Address(addr)
+    return (0 if ip in _LAN_PREF else 1, ip)
+
+
 def local_private_ipv4() -> list[str]:
-    """枚举本机已启用接口，只接受 RFC1918 IPv4；不做 DNS 或外网探测。"""
-    addresses = set()
+    """枚举本机已启用接口，只接受 RFC1918 IPv4；不做 DNS 或外网探测。
+    优先 192.168/16，并跳过明显虚拟网卡（VPN/Docker 等）。"""
+    addresses: dict[str, str] = {}
     if sys.platform == "win32":
         # GetIpAddrTable 的 MIB_IPADDRROW 固定为六个 DWORD（24 字节）。
         size = ctypes.c_ulong(0)
@@ -47,7 +61,7 @@ def local_private_ipv4() -> list[str]:
             row = buffer.raw[4 + i * 24:4 + (i + 1) * 24]
             flags = int.from_bytes(row[22:24], "little")
             if not flags & (8 | 64 | 128):
-                addresses.add(socket.inet_ntoa(row[:4]))
+                addresses.setdefault(socket.inet_ntoa(row[:4]), "")
     else:
         class IfAddrs(ctypes.Structure):
             pass
@@ -73,12 +87,17 @@ def local_private_ipv4() -> list[str]:
                     raw = ctypes.string_at(item.addr, 8)
                     family = raw[1] if sys.platform == "darwin" else int.from_bytes(raw[:2], sys.byteorder)
                     if family == socket.AF_INET:
-                        addresses.add(socket.inet_ntoa(raw[4:8]))
+                        ifname = ""
+                        if item.name:
+                            ifname = (item.name.decode("utf-8", "replace")
+                                      if isinstance(item.name, bytes) else str(item.name))
+                        if not _virtual_iface(ifname):
+                            addresses.setdefault(socket.inet_ntoa(raw[4:8]), ifname)
                 cursor = item.next
         finally:
             libc.freeifaddrs(head)
     return sorted((a for a in addresses if any(ipaddress.IPv4Address(a) in n for n in _PRIVATE_NETWORKS)),
-                  key=ipaddress.IPv4Address)
+                  key=_private_ipv4_key)
 
 
 _STYLE = """
@@ -184,6 +203,7 @@ class _Session:
     started_at: float | None
     expires_at: float
     deadline: float
+    ttl_s: float = 600.0
     qr: str = ""
 
 
@@ -339,7 +359,16 @@ class MobilePreview:
                     self._stop_locked(address)
                 listener.server.server_close()
 
-    def create(self, source: str, address: str | None = None) -> dict:
+    def create(self, source: str, address: str | None = None, ttl_s: float | None = None) -> dict:
+        if ttl_s is not None:
+            try:
+                ttl = float(ttl_s)
+            except (TypeError, ValueError):
+                raise HTTPException(400, "预览有效期须在 60–3600 秒之间") from None
+            if not 60 <= ttl <= 3600:
+                raise HTTPException(400, "预览有效期须在 60–3600 秒之间")
+        else:
+            ttl = self.TTL
         try:
             addresses = local_private_ipv4()
         except (OSError, AttributeError):
@@ -365,7 +394,7 @@ class MobilePreview:
                     raise HTTPException(503, "无法在所选网卡启动临时预览，请检查网络连接") from None
             session = _Session(secrets.token_hex(12), secrets.token_urlsafe(24), source, selected,
                                runner, runner.pipeline, runner.started_at,
-                               time.time() + self.TTL, time.monotonic() + self.TTL)
+                               time.time() + ttl, time.monotonic() + ttl, ttl)
             port = listener.server.server_port
             # 凭据只在 fragment 中；IP 列表不包含端口、路径或凭据。
             url = f"http://{selected}:{port}/preview/{session.id}#{session.token}"
@@ -382,7 +411,8 @@ class MobilePreview:
                                                    daemon=True, name="mobile-preview")
                 listener.thread.start()
             return {"id": session.id, "qr": session.qr,
-                    "expires_at": session.expires_at, "addresses": addresses, "address": selected}
+                    "expires_at": session.expires_at, "addresses": addresses, "address": selected,
+                    "ttl_s": ttl}
 
     def sessions(self) -> list[dict]:
         """管理端恢复现有二维码，不续期，也不重新签发手机凭据。"""
@@ -393,7 +423,8 @@ class MobilePreview:
         with self._lock:
             self._prune_locked()
             return [{"id": s.id, "source": s.source, "qr": s.qr,
-                     "expires_at": s.expires_at, "addresses": addresses, "address": s.address}
+                     "expires_at": s.expires_at, "addresses": addresses, "address": s.address,
+                     "ttl_s": s.ttl_s}
                     for s in self._sessions.values()]
 
     def revoke(self, sid: str) -> dict:

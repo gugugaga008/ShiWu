@@ -24,6 +24,7 @@ def test_list_and_read_fake_camera(fake_cam):
     cams = list_cameras()
     c = [x for x in cams if x["id"] == "7"][0]
     assert c["fake"] and c["busy"] is None
+    assert all("opencv" not in x["name"].lower() for x in cams)
     src = CameraSource("7", owner="测试").start()
     try:
         f = src.read()
@@ -61,6 +62,25 @@ def test_reconnect_recovers(fake_cam):
     frames = [src.read() for _ in range(3)]
     assert src.reconnects == 1 and any(f is not None for f in frames)
     src.stop()
+
+
+def test_push_sources_includes_capture_source_obj():
+    from types import SimpleNamespace
+    from shiwu.api.boss.runtime import BossRuntime
+
+    cap_src = CameraSource("push://electron").start()
+    pipe_src = CameraSource("push://electron").start()
+    try:
+        rt = SimpleNamespace(
+            runners={"cam": SimpleNamespace(pipeline=SimpleNamespace(source=pipe_src))},
+            captures={"c1": SimpleNamespace(source_obj=cap_src)},
+        )
+        srcs = BossRuntime.push_sources(rt, "electron")
+        assert srcs == [pipe_src, cap_src]
+        assert BossRuntime.push_sources(rt, "missing") == []
+    finally:
+        cap_src.stop()
+        pipe_src.stop()
 
 
 def test_push_mode_drops_oldest():

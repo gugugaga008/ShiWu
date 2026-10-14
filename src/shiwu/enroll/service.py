@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 
 from .gallery import LocalGallery
-from .quality import QualityConfig, QualityResult, check_face_quality
+from .quality import PHOTO_ENROLL_QUALITY, QualityConfig, QualityResult, check_face_quality
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +128,9 @@ class EnrollmentService:
             if f is None:
                 rep.rejected.append({"source": src, "reasons": ["no_face"]})
                 continue
-            cands.append(Candidate(img, f, self.check(img, f), source=src))
+            q = check_face_quality(img.shape, f["bbox"], f.get("landmarks_5"),
+                                   f.get("confidence", 1.0), PHOTO_ENROLL_QUALITY)
+            cands.append(Candidate(img, f, q, source=src))
         ok = [c for c in cands if c.quality.ok]
         if not ok:
             for c in cands:

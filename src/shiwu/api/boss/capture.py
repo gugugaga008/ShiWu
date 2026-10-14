@@ -14,6 +14,7 @@ import numpy as np
 
 from ...enroll import QualityConfig, check_face_quality
 from ...stream import create_source
+from ...stream.base import Frame
 
 logger = logging.getLogger(__name__)
 
@@ -58,11 +59,14 @@ class CaptureConfig:
 
 class CaptureSession:
     def __init__(self, engine, kind: str, uri: str, cfg: CaptureConfig,
-                 known_matcher=None, source_options: Optional[dict] = None):
+                 known_matcher=None, source_options: Optional[dict] = None,
+                 shared_runner=None):
         self.id = uuid.uuid4().hex[:12]
         self.engine, self.kind, self.uri, self.cfg = engine, kind, uri, cfg
         self.source_options = source_options or {}
         self.known_matcher = known_matcher       # fn(embedding) -> (person_id|None, sim)
+        self.shared_runner = shared_runner       # 监控管道已占用同一设备时复用其帧
+        self.source_obj = None                   # 自建源（含 push://），供推流入口查找
         self.status = "created"                  # created|recording|clustering|ready|error|cancelled
         self.error: Optional[str] = None
         self.progress = 0.0
@@ -107,7 +111,7 @@ class CaptureSession:
         if self.kind == "file":
             opts.setdefault("realtime", False)
             opts.setdefault("fps", cfg.fps)
-        src = create_source(self.kind, self.uri, **opts).start()
+        src = None
         det = self.engine.detector
         old_min = det.min_face_size
         det.set_min_face_size(cfg.min_face)
@@ -116,38 +120,81 @@ class CaptureSession:
         sid = 0
         last_pts = None
         min_dt = 1.0 / cfg.fps if cfg.fps > 0 else 0
+        shared_idx = 0
+        last_shared_pts = object()
+
+        def consume(fr) -> bool:
+            nonlocal last_pts, sid
+            elapsed = fr.pts if self.kind == "file" else time.time() - t0
+            if elapsed > cfg.duration_s:
+                return False
+            if self.kind != "file" and last_pts is not None and fr.pts - last_pts < min_dt:
+                return True
+            last_pts = fr.pts
+            self.progress = min(0.95, elapsed / cfg.duration_s)
+            faces = det.detect_faces(fr.image) or []
+            faces = tracker.update(faces, frame_rate=int(cfg.fps)) if faces else tracker.update([])
+            faces = [f for f in faces if f.get("landmarks_5")]
+            if not faces:
+                return True
+            embs = self.engine.embed(fr.image, faces)
+            self.frames[fr.index] = cv2.imencode(".jpg", fr.image, [cv2.IMWRITE_JPEG_QUALITY, 90])[1].tobytes()
+            self.frame_shapes[fr.index] = fr.image.shape
+            for f, e in zip(faces, embs):
+                q = check_face_quality(fr.image.shape, f["bbox"], f["landmarks_5"], f.get("confidence", 1.0),
+                                       QualityConfig())
+                self.samples[sid] = Sample(sid, fr.index, round(fr.pts, 3), int(f.get("track_id", -1)),
+                                           f["bbox"], f["landmarks_5"], float(f.get("confidence", 0)),
+                                           np.asarray(e, np.float32), q.ok, q.metrics, q.reasons)
+                sid += 1
+            return True
+
         try:
-            while not self._cancel.is_set():
-                fr = src.read()
-                if fr is None:
-                    if not src.is_running:
+            if self.shared_runner is not None:
+                while not self._cancel.is_set():
+                    elapsed = time.time() - t0
+                    self.progress = min(0.95, elapsed / cfg.duration_s)
+                    if elapsed > cfg.duration_s:
                         break
-                    continue
-                elapsed = fr.pts if self.kind == "file" else time.time() - t0
-                if elapsed > cfg.duration_s:
-                    break
-                if self.kind != "file" and last_pts is not None and fr.pts - last_pts < min_dt:
-                    continue
-                last_pts = fr.pts
-                self.progress = min(0.95, elapsed / cfg.duration_s)
-                faces = det.detect_faces(fr.image) or []
-                faces = tracker.update(faces, frame_rate=int(cfg.fps)) if faces else tracker.update([])
-                faces = [f for f in faces if f.get("landmarks_5")]
-                if not faces:
-                    continue
-                embs = self.engine.embed(fr.image, faces)
-                self.frames[fr.index] = cv2.imencode(".jpg", fr.image, [cv2.IMWRITE_JPEG_QUALITY, 90])[1].tobytes()
-                self.frame_shapes[fr.index] = fr.image.shape
-                for f, e in zip(faces, embs):
-                    q = check_face_quality(fr.image.shape, f["bbox"], f["landmarks_5"], f.get("confidence", 1.0),
-                                           QualityConfig())
-                    self.samples[sid] = Sample(sid, fr.index, round(fr.pts, 3), int(f.get("track_id", -1)),
-                                               f["bbox"], f["landmarks_5"], float(f.get("confidence", 0)),
-                                               np.asarray(e, np.float32), q.ok, q.metrics, q.reasons)
-                    sid += 1
+                    deadline = time.time() + 0.5
+                    fr = None
+                    while time.time() < deadline and not self._cancel.is_set():
+                        raw = getattr(self.shared_runner, "last_raw", None)
+                        pts = getattr(self.shared_runner, "last_raw_pts", None)
+                        if raw is not None and pts is not last_shared_pts and pts != last_shared_pts:
+                            last_shared_pts = pts
+                            img = raw.copy()
+                            fr = Frame(image=img, index=shared_idx,
+                                       pts=float(pts if pts is not None else elapsed),
+                                       wall_time=time.time())
+                            shared_idx += 1
+                            break
+                        time.sleep(0.02)
+                    if fr is None:
+                        continue
+                    if not consume(fr):
+                        break
+            else:
+                src = create_source(self.kind, self.uri, **opts).start()
+                self.source_obj = src
+                while not self._cancel.is_set():
+                    if self.kind != "file":
+                        elapsed = time.time() - t0
+                        self.progress = min(0.95, elapsed / cfg.duration_s)
+                        if elapsed > cfg.duration_s:
+                            break
+                    fr = src.read()
+                    if fr is None:
+                        if not src.is_running:
+                            break
+                        continue
+                    if not consume(fr):
+                        break
         finally:
             det.set_min_face_size(old_min)
-            src.stop()
+            if src is not None:
+                src.stop()
+            self.source_obj = None
         self.stats.update({"frames_with_faces": len(self.frames), "samples": len(self.samples),
                            "record_s": round(time.time() - t0, 1)})
 

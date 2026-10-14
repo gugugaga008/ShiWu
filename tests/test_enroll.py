@@ -5,7 +5,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from shiwu.core.models.face_detector.postprocess import process_detection
 from shiwu.enroll import LocalGallery, QualityConfig, check_face_quality, estimate_pose  # noqa
+from shiwu.enroll.quality import PHOTO_ENROLL_QUALITY
 
 SHAPE = (720, 1280, 3)
 
@@ -61,6 +63,26 @@ def test_custom_config():
     assert r.ok
 
 
+def test_photo_config_allows_edge_id_portrait():
+    r = check_face_quality(SHAPE, box(0, 80, 400), lm(200, 330, 400), 0.80, PHOTO_ENROLL_QUALITY)
+    assert r.ok, r.reasons
+    default = check_face_quality(SHAPE, box(0, 80, 400), lm(200, 330, 400), 0.80)
+    assert not default.ok and any(x.startswith("too_close_to_edge") for x in default.reasons)
+
+
+def test_process_detection_clamps_out_of_bounds_box():
+    face = np.zeros(15, np.float32)
+    face[:4] = [-1, -1, 50, 50]
+    face[14] = 0.9
+    landmarks = np.zeros((5, 2), np.float32)
+    d = process_detection(face, 0, landmarks, 100, 100)
+    assert d is not None
+    assert d["bbox"]["x"] == 0 and d["bbox"]["y"] == 0
+    assert d["bbox"]["width"] == 49 and d["bbox"]["height"] == 49
+    face[:4] = [200, 0, 10, 10]
+    assert process_detection(face, 0, landmarks, 100, 100) is None
+
+
 def test_gallery_multi_template_max_match(tmp_path):
     g = LocalGallery(str(tmp_path / "g.db"))
     rng = np.random.default_rng(0)
@@ -100,3 +122,28 @@ def test_smoke_enroll_gate_and_multi_template(tmp_path):
     good = svc.enroll_from_video("A", str(VID), 1.0, max_templates=3, window_s=6)
     assert 2 <= len(good.accepted) <= 3
     assert all(x["metrics"]["width"] >= 80 for x in good.accepted)
+
+
+ID_PHOTO = Path("/Users/kaixiongwu/_2026/吴凯雄个人资料/简历/2026-09-11/证件照.jpg")
+
+
+@pytest.mark.skipif(not ID_PHOTO.is_file(), reason="无证件照")
+def test_optional_id_photo_enroll_images(tmp_path):
+    import cv2
+    from shiwu.enroll import EnrollmentService
+    from shiwu.stream.engine import LocalEngine
+    try:
+        eng = LocalEngine(enable_tracking=False)
+    except Exception:
+        pytest.skip("无模型")
+    data = np.fromfile(str(ID_PHOTO), dtype=np.uint8)
+    img = cv2.imdecode(data, cv2.IMREAD_COLOR)
+    if img is None:
+        pytest.skip("无法读取证件照")
+    h, w = img.shape[:2]
+    if max(h, w) > 1280:
+        s = 1280 / max(h, w)
+        img = cv2.resize(img, (int(w * s), int(h * s)))
+    svc = EnrollmentService(eng, LocalGallery(str(tmp_path / "g.db")))
+    rep = svc.enroll_images("id", [img], "证件")
+    assert rep.accepted, rep.rejected

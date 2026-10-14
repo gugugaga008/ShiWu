@@ -130,10 +130,14 @@ def test_set_rules_takes_effect():
 def test_normalize_legacy_and_defaults():
     r = normalize_rules([{"role": "boss", "action": "alert"}, {"role": "x", "actions": [{"type": "rm_rf"}]}])
     assert [a["type"] for a in r[0]["actions"]] == ["notify", "sound", "cover"]
-    assert r[0]["id"] == "boss" and r[0]["min_frames"] == 3 and r[0]["cooldown_s"] == 30
+    assert r[0]["id"] == "boss" and r[0]["min_confirm_s"] == 0.5 and r[0]["min_frames"] == 3
+    assert r[0]["cooldown_s"] == 30
     assert r[1]["actions"] == []                         # 未知动作被丢弃
     d = normalize_rules(DEFAULT_RULES)
-    assert {a["type"] for a in next(x for x in d if x["id"] == "boss")["actions"]} >= {"notify", "cover", "minimize_all"}
+    assert len(d) == 1 and d[0]["id"] == "boss" and d[0]["min_confirm_s"] == 0.5
+    assert {a["type"] for a in d[0]["actions"]} >= {"notify", "cover", "minimize_all"}
+    only_frames = normalize_rules([{"role": "boss", "min_frames": 1}, {"role": "boss", "min_frames": 3}])
+    assert only_frames[0]["min_confirm_s"] == 0 and only_frames[1]["min_confirm_s"] == 0.4
 
 
 # ---------- 加密多模板库 ----------

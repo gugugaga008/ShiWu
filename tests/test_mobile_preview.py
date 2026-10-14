@@ -143,8 +143,9 @@ def test_api_contract_auth_and_qr(api, preview):
     assert response.status_code == 200
     assert_headers(response)
     result = response.json()
-    assert set(result) == {"id", "qr", "expires_at", "addresses", "address"}
+    assert set(result) == {"id", "qr", "expires_at", "addresses", "address", "ttl_s"}
     assert result["addresses"] == ADDRESSES and result["address"] == ADDRESSES[1]
+    assert result["ttl_s"] == 600
     assert 595 < result["expires_at"] - time.time() <= 600
     assert MAIN_TOKEN not in response.text
     with lan(result)[0] as client:
@@ -511,3 +512,23 @@ def test_local_interface_enumeration_is_private():
     for address in mobile.local_private_ipv4():
         import ipaddress
         assert any(ipaddress.IPv4Address(address) in network for network in mobile._PRIVATE_NETWORKS)
+
+
+def test_private_ipv4_prefers_192_168_and_skips_virtual():
+    addrs = ["10.8.0.2", "172.16.0.5", "192.168.1.10", "192.168.0.2"]
+    assert sorted(addrs, key=mobile._private_ipv4_key)[:2] == ["192.168.0.2", "192.168.1.10"]
+    assert mobile._virtual_iface("utun4") and mobile._virtual_iface("docker0")
+    assert mobile._virtual_iface("bridge100") and mobile._virtual_iface("awdl0")
+    assert not mobile._virtual_iface("en0") and not mobile._virtual_iface("wlan0")
+
+
+def test_create_ttl_s_is_configurable(preview):
+    result = preview.create("摄像头 A", ttl_s=120)
+    assert result["ttl_s"] == 120
+    assert 115 < result["expires_at"] - time.time() <= 120
+    with pytest.raises(HTTPException) as err:
+        preview.create("摄像头 A", ttl_s=10)
+    assert err.value.status_code == 400
+    with pytest.raises(HTTPException) as err:
+        preview.create("摄像头 A", ttl_s=4000)
+    assert err.value.status_code == 400

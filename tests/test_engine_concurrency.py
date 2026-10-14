@@ -208,6 +208,7 @@ def test_file_live_photo_and_known_match_share_one_loop(engine, monkeypatch, tmp
     runtime._capture_engine = engine
     runtime.gallery = gallery
     runtime.captures = {}
+    runtime.runners = {}
     runtime.resolve_video = lambda uri: uri
     runtime.name_of = lambda pid: "测试人员"
     runtime.invalidate_people = Mock(side_effect=engine.request_refresh)

@@ -105,7 +105,7 @@ def pipeline_start_defaults():
 def cameras():
     from ...stream.sources.camera_source import list_cameras
     return {"devices": list_cameras(),
-            "push": [{"id": "push://electron", "name": "桌面端摄像头（getUserMedia）"}]}
+            "push": [{"id": "push://electron", "name": "本机摄像头"}]}
 
 
 @router.get("/settings")
@@ -163,6 +163,7 @@ def preview(source: Optional[str] = None):
 class MobilePreviewReq(BaseModel):
     source: str = Field(..., min_length=1, max_length=32)
     address: Optional[str] = Field(None, min_length=1, max_length=15)
+    ttl_s: Optional[float] = Field(None, ge=60, le=3600)
 
 
 @router.get("/mobile-preview")
@@ -174,7 +175,7 @@ def mobile_preview_list(response: Response):
 @router.post("/mobile-preview")
 def mobile_preview_create(req: MobilePreviewReq, response: Response):
     response.headers.update(SECURITY_HEADERS)
-    return runtime.mobile_preview.create(req.source, req.address)
+    return runtime.mobile_preview.create(req.source, req.address, req.ttl_s)
 
 
 @router.delete("/mobile-preview")
@@ -471,10 +472,12 @@ class Rule(BaseModel):
     schedule: List[TimeWindow] = Field(default_factory=list)
     min_face_px: int = Field(0, ge=0, le=4000)
     min_face_ratio: float = Field(0, ge=0, le=1)
+    min_face_mode: Literal["", "px", "ratio"] = ""
     restore_on_leave: bool = False
     leave_after_s: float = Field(15, ge=1, le=3600)
     enabled: bool = True
-    min_frames: int = Field(3, ge=1, le=100)
+    min_confirm_s: float = Field(0.5, ge=0, le=3600)
+    min_frames: Optional[int] = Field(None, ge=1, le=100)
     cooldown_s: float = Field(30, ge=0, le=86400)
     actions: List[RuleAction] = Field(default_factory=list)
     note: Optional[str] = None
@@ -494,7 +497,15 @@ def rules_put(rules: List[Rule]):
     empty = [r.id or "?" for r in rules if not (r.role or r.person_ids or r.stranger)]
     if empty:
         raise HTTPException(400, f"规则没有指定对象（角色/人员/陌生人）：{empty}")
-    return {"rules": runtime.save_rules([r.model_dump() for r in rules])}
+    dumped = []
+    for r in rules:
+        d = r.model_dump()
+        if "min_confirm_s" not in r.model_fields_set:
+            d.pop("min_confirm_s", None)
+        if "min_frames" not in r.model_fields_set:
+            d.pop("min_frames", None)
+        dumped.append(d)
+    return {"rules": runtime.save_rules(dumped)}
 
 
 @router.get("/monitor")
@@ -510,6 +521,40 @@ def monitor_pause(source: str = "api"):
 @router.post("/monitor/resume")
 def monitor_resume(source: str = "api"):
     return runtime.set_paused(False, source)
+
+
+def _test_snapshot_jpeg() -> Optional[bytes]:
+    """生成带「测试」二字的小图；无中文字体时退回 TEST。"""
+    try:
+        import io
+        from PIL import Image, ImageDraw, ImageFont
+        img = Image.new("RGB", (320, 240), (32, 32, 40))
+        draw = ImageDraw.Draw(img)
+        font = None
+        for fp in (
+            "/System/Library/Fonts/PingFang.ttc",
+            "/System/Library/Fonts/Hiragino Sans GB.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "C:\\Windows\\Fonts\\msyh.ttc",
+        ):
+            try:
+                font = ImageFont.truetype(fp, 72)
+                break
+            except OSError:
+                continue
+        text = "测试" if font else "TEST"
+        bbox = draw.textbbox((0, 0), text, font=font)
+        x = (320 - (bbox[2] - bbox[0])) // 2
+        y = (240 - (bbox[3] - bbox[1])) // 2 - bbox[1]
+        draw.text((x, y), text, fill=(255, 255, 255), font=font)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=85)
+        return buf.getvalue()
+    except Exception:  # noqa: BLE001
+        img = np.full((240, 320, 3), 40, np.uint8)
+        cv2.putText(img, "TEST", (90, 140), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (255, 255, 255), 2)
+        ok, buf = cv2.imencode(".jpg", img)
+        return buf.tobytes() if ok else None
 
 
 class TestAction(BaseModel):
@@ -528,8 +573,16 @@ def monitor_test(req: TestAction):
     ev = {"id": _u.uuid4().hex[:12], "ts": time.time(), "rule_id": rule["id"], "role": rule["role"],
           "person_id": None, "name": req.name, "track_id": None, "similarity": 0, "frames": 0,
           "actions": rule["actions"], "source": "test"}
+    if runtime.settings().get("snapshot_enabled", True):
+        try:
+            jpeg = _test_snapshot_jpeg()
+            if jpeg:
+                ev["snapshot"] = runtime.snapshots.save(jpeg, ev["ts"])
+        except Exception:  # noqa: BLE001
+            logger.exception("test snapshot failed")
     runtime.eventlog.add("action", ts=ev["ts"], name=req.name, role=rule["role"], rule_id=rule["id"],
-                         actions=rule["actions"], source="test", detail={"event_id": ev["id"]})
+                         actions=rule["actions"], source="test", snapshot=ev.get("snapshot"),
+                         detail={"event_id": ev["id"]})
     runtime._on_action(ev)
     return ev
 
@@ -644,14 +697,19 @@ async def camera_push(websocket: WebSocket, token: str = Query(""), name: str = 
             data = msg.get("bytes")
             if not data:
                 continue
-            src = runtime.push_source(name)
-            if src is None:
+            srcs = runtime.push_sources(name)
+            if not srcs:
                 if n % 25 == 0:
                     await websocket.send_text(json.dumps({"type": "idle"}))
                 n += 1
                 continue
             img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-            if img is not None and src.push_frame(img):
+            accepted = False
+            if img is not None:
+                for src in srcs:
+                    if src.push_frame(img):
+                        accepted = True
+            if accepted:
                 n += 1
                 if n % 25 == 0:
                     r = runtime.runner_for_push(name)

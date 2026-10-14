@@ -13,8 +13,14 @@ def process_detection(
     x, y, w, h = face[:4].astype(int)
     conf = float(face[14])
 
-    if x < 0 or y < 0 or x + w > img_width or y + h > img_height:
+    x1 = max(0, x)
+    y1 = max(0, y)
+    x2 = min(img_width, x + w)
+    y2 = min(img_height, y + h)
+    w, h = x2 - x1, y2 - y1
+    if w < 1 or h < 1:
         return None
+    x, y = x1, y1
 
     detection = {
         "bbox": {

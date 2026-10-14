@@ -41,6 +41,8 @@ class SourceRunner:
         self.started_at: Optional[float] = None
         self.latest_jpeg: Optional[bytes] = None
         self.last_annot = None
+        self.last_raw = None
+        self.last_raw_pts = None
         self.latest_faces: List[dict] = []
         self.last_push = 0.0
 
@@ -70,6 +72,7 @@ class BossRuntime:
         self.email_limiter = RateLimiter(int(st.get("email_per_hour") or 0), float(st.get("email_min_interval_s") or 0))
         self.rule_engine = RuleEngine(self.rules(), on_action=self._on_action, eventlog=self.eventlog,
                                       on_prepare=self._on_prepare, on_leave=self._on_leave)
+        self._paused_pipelines: List[dict] = []
         self._ticker = threading.Thread(target=self._tick_loop, daemon=True, name="rule-tick")
         self._ticker.start()
 
@@ -236,7 +239,20 @@ class BossRuntime:
 
     def set_paused(self, paused: bool, source: str = "api") -> dict:
         if paused != self.rule_engine.paused:
-            (self.rule_engine.pause if paused else self.rule_engine.resume)(source)
+            if paused:
+                self.rule_engine.pause(source)
+                self._paused_pipelines = [dict(r.start_args) for r in list(self.runners.values()) if r.start_args]
+                if self.runners:
+                    self.stop_pipeline()
+            else:
+                self.rule_engine.resume(source)
+                saved = list(self._paused_pipelines)
+                self._paused_pipelines = []
+                for args in saved:
+                    try:
+                        self.start_pipeline(**args)
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("resume pipeline %s failed: %s", args.get("name"), e)
         st = self.monitor_status()
         self._broadcast({"type": "monitor", **st})
         return st
@@ -282,6 +298,8 @@ class BossRuntime:
         return [f for r in self.runners.values() for f in r.latest_faces]
 
     def _on_frame(self, runner: "SourceRunner", frame, faces):
+        runner.last_raw = frame.image
+        runner.last_raw_pts = frame.pts
         annot = draw_faces(frame.image, faces, title=runner.name)
         h, w = annot.shape[:2]
         if w > 1280:
@@ -380,12 +398,23 @@ class BossRuntime:
                 errors.append({"name": s.get("name"), "error": str(e)})
         return dict(self.pipeline_status(), start_errors=errors)
 
-    def push_source(self, name: str):
+    def push_sources(self, name: str) -> list:
+        """所有匹配 push://{name} 的源：监控管道 + 进行中的采集会话。"""
+        uri = f"push://{name}"
+        out = []
         for r in self.runners.values():
             src = r.pipeline.source if r.pipeline else None
-            if src is not None and getattr(src, "push_mode", False) and src.uri == f"push://{name}":
-                return src
-        return None
+            if src is not None and getattr(src, "push_mode", False) and src.uri == uri:
+                out.append(src)
+        for s in self.captures.values():
+            src = getattr(s, "source_obj", None)
+            if src is not None and getattr(src, "push_mode", False) and src.uri == uri:
+                out.append(src)
+        return out
+
+    def push_source(self, name: str):
+        srcs = self.push_sources(name)
+        return srcs[0] if srcs else None
 
     def runner_for_push(self, name: str) -> Optional["SourceRunner"]:
         for r in self.runners.values():
@@ -511,7 +540,15 @@ class BossRuntime:
             uri = self.resolve_video(uri)
         eng = self.engine(capture=True)
         eng.refresh_gallery()
-        s = CaptureSession(eng, kind, uri, cfg, known_matcher=self.known_match)
+        shared = None
+        if kind == "camera" and not str(uri).startswith("push://"):
+            for r in self.runners.values():
+                p = r.pipeline
+                running = bool(p and p._thread and p._thread.is_alive())
+                if running and r.source.get("kind") == "camera" and r.source.get("uri") == uri:
+                    shared = r
+                    break
+        s = CaptureSession(eng, kind, uri, cfg, known_matcher=self.known_match, shared_runner=shared)
         self.captures[s.id] = s
         # 只保留最近 5 个会话
         for sid in sorted(self.captures, key=lambda k: self.captures[k].created_at)[:-5]:
