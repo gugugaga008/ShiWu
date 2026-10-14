@@ -23,22 +23,32 @@ const MODES = [
 
 export function PeopleAdd({ initialMode = 'photo' }: { initialMode?: AddMode }) {
   const [selection, setSelection] = useState({ initialMode, mode: initialMode })
+  const [visited, setVisited] = useState<Record<AddMode, boolean>>(() => ({
+    photo: true, file: initialMode === 'file', live: initialMode === 'live',
+  }))
   // 搜索参数导航仅切换可见工作区，不重建正在采集的组件。
-  if (selection.initialMode !== initialMode) setSelection({ initialMode, mode: initialMode })
+  if (selection.initialMode !== initialMode) {
+    setSelection({ initialMode, mode: initialMode })
+    if (!visited[initialMode]) setVisited((current) => ({ ...current, [initialMode]: true }))
+  }
   const mode = selection.initialMode === initialMode ? selection.mode : initialMode
+  const select = (value: AddMode) => {
+    setVisited((current) => (current[value] ? current : { ...current, [value]: true }))
+    setSelection({ initialMode, mode: value })
+  }
   return (
     <Page title='添加人员' desc='选择照片、视频文件或现场采集；姓名区分个人，分组用于分类。'>
       <div role='group' aria-label='添加方式' className='mb-4 flex flex-wrap gap-2'>
         {MODES.map(({ value, label, icon: Icon }) => (
-          <Button key={value} variant={mode === value ? 'default' : 'outline'} aria-pressed={mode === value} onClick={() => setSelection({ initialMode, mode: value })}>
+          <Button key={value} variant={mode === value ? 'default' : 'outline'} aria-pressed={mode === value} onClick={() => select(value)}>
             <Icon aria-hidden />{label}
           </Button>
         ))}
       </div>
-      {/* 保持工作区挂载，切换时保留上传结果、采集轮询和候选人物草稿。 */}
+      {/* 未进入过的采集工作区不挂载，避免照片添加页就去枚举/打开摄像头。 */}
       <section hidden={mode !== 'photo'} aria-label='照片添加工作区'><PhotoAdd /></section>
-      <section hidden={mode !== 'file'} aria-label='视频文件添加工作区'><CaptureWorkspace mode='file' /></section>
-      <section hidden={mode !== 'live'} aria-label='现场采集添加工作区'><CaptureWorkspace mode='live' /></section>
+      {visited.file && <section hidden={mode !== 'file'} aria-label='视频文件添加工作区'><CaptureWorkspace mode='file' /></section>}
+      {visited.live && <section hidden={mode !== 'live'} aria-label='现场采集添加工作区'><CaptureWorkspace mode='live' /></section>}
     </Page>
   )
 }
@@ -50,11 +60,17 @@ function PhotoAdd() {
   const [verified, setVerified] = useState(false)
   const [selectedId, setSelectedId] = useState('')
   const [dragging, setDragging] = useState(false)
+  const [previews, setPreviews] = useState<string[]>([])
   const fileLocked = pending || creationUncertain || uploadUncertain
   const { data: people = [] } = useQuery({ queryKey: ['people'], queryFn: async () => (await api.get<Person[]>('/people')).data, enabled: creationUncertain })
   const selected = people.find((item) => item.person_id === selectedId)
   useEffect(() => {
     if (!files.length && fileRef.current) fileRef.current.value = ''
+  }, [files])
+  useEffect(() => {
+    const urls = files.map((file) => URL.createObjectURL(file))
+    setPreviews(urls)
+    return () => urls.forEach((url) => URL.revokeObjectURL(url))
   }, [files])
   const upload = async () => {
     await submit()
@@ -93,6 +109,7 @@ function PhotoAdd() {
             className={cn(
               'cursor-pointer rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground',
               dragging && 'border-primary bg-primary/5 text-foreground',
+              files.length > 0 && 'border-primary bg-primary/10 text-foreground',
               fileLocked && 'pointer-events-none opacity-50',
             )}
             onClick={() => fileRef.current?.click()}
@@ -107,7 +124,13 @@ function PhotoAdd() {
             }}
           >
             <Input ref={fileRef} id='photo-person-files' type='file' accept='image/*' multiple className='sr-only' disabled={fileLocked} onClick={(event) => event.stopPropagation()} onChange={(event) => update({ files: Array.from(event.target.files ?? []) })} />
-            <p>点击选择或拖放图片到此处</p>
+            {previews.length ? (
+              <div className='flex flex-wrap justify-center gap-2'>
+                {previews.slice(0, 6).map((url, index) => (
+                  <img key={url} src={url} alt={files[index]?.name || `已选照片 ${index + 1}`} className='size-20 rounded-md object-cover' />
+                ))}
+              </div>
+            ) : <p>点击选择或拖放图片到此处</p>}
           </div>
           {files.length ? <p className='text-sm text-muted-foreground'>已选择 {files.length} 张：{files.slice(0, 5).map((file) => file.name).join('、')}{files.length > 5 ? '…' : ''}</p> : <p className='flex items-center gap-2 text-sm text-muted-foreground'><ImagePlus className='size-4' aria-hidden />尚未选择照片，请选择同一人的正脸及不同角度照片。</p>}
         </div>

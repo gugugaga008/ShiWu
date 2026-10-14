@@ -15,6 +15,7 @@ type PhotoAddState = Draft & {
   reset: () => void
   resumePerson: (person: Person) => void
   clearUncertainUpload: () => void
+  dropGonePerson: () => void
 }
 
 // 只在当前窗口内存保留流程；路由卸载不会丢失在途请求、人员 ID 或结果不明保护。
@@ -29,6 +30,11 @@ export const usePhotoAdd = create<PhotoAddState>((set, get) => ({
   },
   clearUncertainUpload: () => {
     if (!get().pending) set({ files: [], uploadUncertain: false, report: null, error: '' })
+  },
+  dropGonePerson: () => {
+    if (!get().pending && get().person) {
+      set({ person: null, report: null, error: '', creationUncertain: false, uploadUncertain: false })
+    }
   },
   submit: async () => {
     const draft = get()
@@ -59,19 +65,22 @@ export const usePhotoAdd = create<PhotoAddState>((set, get) => ({
     } catch (cause) {
       const status = (cause as { response?: { status?: number } } | null)?.response?.status
       // 照片可能已部分入库：只有明确的前置拒绝才允许直接重试，网络/5xx 不盲目重发。
+      const gone = !creating && status === 404
       const definitelyRejected = creating
         ? !!status && status >= 400 && status < 500 && status !== 408
         : !!status && [401, 403, 404, 413, 415, 422].includes(status)
       const creationUncertain = creating && !definitelyRejected
-      const uploadUncertain = !creating && !definitelyRejected
+      const uploadUncertain = !creating && !definitelyRejected && !gone
       const message = creationUncertain
         ? '创建结果无法确认，请先到人员列表核对；为避免重复创建，当前表单不会再次创建人员。'
         : uploadUncertain
           ? '上传结果无法确认，照片可能已入库；请先核对人员列表及模板数量，不要刷新或重发原批次。'
-          : target
-            ? `上传失败：${errMsg(cause)}。人员已保留，可修改后重试上传。`
-            : `创建失败：${errMsg(cause)}。请修改后重试。`
-      set({ creationUncertain, uploadUncertain, error: message })
+          : gone
+            ? `上传失败：${errMsg(cause)}。该人员已不存在，可修改后重新添加。`
+            : target
+              ? `上传失败：${errMsg(cause)}。人员已保留，可修改后重试上传。`
+              : `创建失败：${errMsg(cause)}。请修改后重试。`
+      set({ person: gone ? null : target, creationUncertain, uploadUncertain, error: message })
       toast.error(message)
     } finally {
       set({ pending: false })

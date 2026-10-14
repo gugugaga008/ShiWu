@@ -103,10 +103,10 @@ def test_monitor_pause_resume_and_test_action(server):
     assert c.get("/monitor").json()["paused"] is True
     assert c.post("/monitor/resume").json()["paused"] is False
     ev = c.post("/monitor/test", json={"role": "boss", "name": "演示"}).json()
-    assert [a["type"] for a in ev["actions"]] == ["notify", "cover", "minimize_all"]
+    assert [a["type"] for a in ev["actions"]] == ["notify"]
     kinds = [r["kind"] for r in c.get("/eventlog", params={"limit": 5}).json()]
     assert kinds[:3] == ["action", "monitor_resumed", "monitor_paused"]
-    assert c.post("/monitor/test", json={"role": "leader"}).status_code == 404
+    assert c.post("/monitor/test", json={"role": "staff"}).status_code == 404
     assert c.post("/actions/result", json={"action_id": ev["id"], "results": [{"type": "notify", "ok": True}]}).json()["ok"]
 
 
@@ -165,6 +165,8 @@ def test_end_to_end_capture_enroll_recognize_fire_delete(server):
     assert r.json()["status"] == "enrolled" and 1 <= len(r.json()["enrolled_templates"]) <= 5
     row = [x for x in c.get("/people").json() if x["person_id"] == pid][0]
     assert row["name"] == "王总" and row["role"] == "boss"          # 第 2 阶段遗留修复
+    assert row["has_photo"] is True
+    assert c.get(f"/people/{pid}/photo.jpg").status_code == 200
     # 2) 播放另一段视频：识别出王总并触发规则（min_frames=2）
     c.post("/monitor/resume")
     c.post("/pipeline/start", json={"kind": "file", "uri": str(V2), "loop": False})
@@ -179,12 +181,17 @@ def test_end_to_end_capture_enroll_recognize_fire_delete(server):
     rec = c.get("/eventlog", params={"kind": "recognized"}).json()
     assert any(e["person_id"] == pid for e in rec)
     assert len(fired) == 1                                         # 冷却去抖（60s）
-    # 3) 删除：识别库模板 / 多模板库 / 事件日志 / 内存会话全部清掉
+    # 3) 删除：识别库模板 / 多模板库 / 内存采集会话清掉；时间线与快照保留
+    before = c.get("/eventlog", params={"limit": 1000}).json()
+    kept = [e for e in before if e["person_id"] == pid]
+    assert kept
     d = c.delete(f"/people/{pid}").json()
     assert d["verify"] == {"face_remaining": False, "gallery_remaining": 0}
-    assert d["eventlog_removed"] >= 2
-    assert all(e["person_id"] != pid for e in c.get("/eventlog", params={"limit": 1000}).json())
+    assert d["eventlog_removed"] == 0
+    after = c.get("/eventlog", params={"limit": 1000}).json()
+    assert [e["id"] for e in after if e["person_id"] == pid] == [e["id"] for e in kept]
     assert c.get(f"/captures/{sid}").status_code == 404
+    assert c.get(f"/people/{pid}/photo.jpg").status_code == 404
     import sqlite3
     g = sqlite3.connect(server["dir"] / "boss" / "templates.db")
     assert g.execute("SELECT COUNT(*) FROM templates WHERE person_id=?", (pid,)).fetchone()[0] == 0

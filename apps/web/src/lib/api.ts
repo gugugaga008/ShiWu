@@ -66,6 +66,7 @@ export type Person = {
   role_label: string
   has_face_data: boolean
   templates: number
+  has_photo?: boolean
   joined_at?: string
 }
 export type BossEvent = {

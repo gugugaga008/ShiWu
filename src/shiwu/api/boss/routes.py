@@ -96,9 +96,9 @@ def pipeline_restart(name: Optional[str] = None):
 
 
 @router.post("/pipeline/start-defaults")
-def pipeline_start_defaults():
-    """按设置里的默认源（可多路）开始监控。"""
-    return runtime.start_defaults()
+def pipeline_start_defaults(cameras: bool = True):
+    """按设置里的默认源（可多路）开始监控。cameras=0 时跳过摄像头，避免打开软件就点亮指示灯。"""
+    return runtime.start_defaults(skip_camera=not cameras)
 
 
 @router.get("/sources/cameras")
@@ -347,9 +347,11 @@ async def capture_confirm(sid: str, cid: int, req: ConfirmReq):
         gid = await _group_id()
         m = await bridge.create_member(req.name, gid, req.role)
         pid = m["person_id"]
+    best = chosen[0]
+    frame = s.frame_image(s.samples[best.sample_id].frame_id)
     if not m.get("has_face_data"):
-        best = chosen[0]
-        await _enroll_primary(gid, pid, s.frame_image(s.samples[best.sample_id].frame_id), best.face)
+        await _enroll_primary(gid, pid, frame, best.face)
+    runtime.save_portrait(pid, frame, best.face)
     name = m["name"]
     for cd in chosen:
         runtime.gallery.add(pid, cd.embedding, name=name, quality=cd.quality.metrics, source=cd.source)
@@ -369,8 +371,17 @@ def people():
     out = []
     for pid, m in runtime.members(force=True).items():
         out.append({**m, "templates": counts.get(pid, 0) + (1 if m.get("has_face_data") else 0),
-                    "role_label": ROLES.get(m.get("role") or "", "未设置")})
+                    "role_label": ROLES.get(m.get("role") or "", "未设置"),
+                    "has_photo": runtime.portrait_path(pid).is_file()})
     return sorted(out, key=lambda m: m.get("joined_at") or "", reverse=True)
+
+
+@router.get("/people/{pid}/photo.jpg")
+def person_photo(pid: str):
+    data = runtime.load_portrait(pid)
+    if not data:
+        raise HTTPException(404, "暂无照片")
+    return Response(data, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=60"})
 
 
 class PersonCreate(BaseModel):
@@ -405,8 +416,8 @@ async def person_update(pid: str, req: PersonUpdate):
 
 @router.delete("/people/{pid}")
 async def person_delete(pid: str):
-    """彻底删除：人脸模板（硬删）+ 成员（先匿名化再软删）
-    + 多模板库（删行并 VACUUM）+ 事件日志中该人记录 + 内存中的采集样本/事件。"""
+    """彻底删除：人脸模板（硬删）+ 成员（先匿名化再软删）+ 多模板库。
+    时间线事件与触发快照保留，不随人员删除改动。"""
     if pid not in runtime.members(force=True):
         raise HTTPException(404, "人员不存在")
     await bridge.update_member(pid, {"name": "已删除人员", "role": None, "email": None})
@@ -414,10 +425,9 @@ async def person_delete(pid: str):
     ok = await bridge.delete_member(pid)
     face_left = await bridge.person_has_faces(pid)
     removed = runtime.gallery.remove_person(pid)
-    log_removed = runtime.eventlog.purge_person(pid)
     runtime.forget_person(pid)
     runtime.invalidate_people()
-    return {"success": ok, "templates_removed": removed, "eventlog_removed": log_removed,
+    return {"success": ok, "templates_removed": removed, "eventlog_removed": 0,
             "verify": {"face_remaining": face_left,
                        "gallery_remaining": runtime.gallery.count().get(pid, 0)}}
 
@@ -442,6 +452,8 @@ async def person_photos(pid: str, files: List[UploadFile] = File(...)):
             svc = EnrollmentService(eng, runtime.gallery)
             return svc.enroll_images(pid, imgs, runtime.name_of(pid) or "", sources=names)
     rep = await loop.run_in_executor(None, work)
+    if rep.accepted and rep.portrait_image is not None:
+        runtime.save_portrait(pid, rep.portrait_image, rep.portrait_face)
     await loop.run_in_executor(None, runtime.invalidate_people)
     return {"accepted": len(rep.accepted), "rejected": rep.rejected,
             "templates": runtime.gallery.count().get(pid, 0)}

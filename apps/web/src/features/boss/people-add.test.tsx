@@ -279,7 +279,7 @@ describe('照片添加人员', () => {
     expect(requests.post.mock.calls.map(([url]) => url)).toEqual(['/people', '/people/created-before-disconnect/photos', '/people'])
   })
 
-  it('支持拖放图片到选择区', async () => {
+  it('支持拖放图片到选择区，显示预览并改变底色', async () => {
     const screen = await render(form(client()))
     const input = document.querySelector('#photo-person-files')!
     const zone = input.parentElement!
@@ -289,6 +289,28 @@ describe('照片添加人员', () => {
     await expect.poll(() => zone.className.includes('border-primary')).toBe(true)
     zone.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }))
     await expect.element(screen.getByText(/已选择 1 张：drop.jpg/)).toBeVisible()
+    await expect.element(screen.getByRole('img', { name: 'drop.jpg' })).toBeVisible()
+    expect(zone.className).toMatch(/bg-primary/)
+  })
+
+  it('人员已删除导致上传 404 后清空旧 ID，允许重新创建', async () => {
+    requests.post.mockImplementation(async (url: string) => {
+      if (url === '/people') return { data: { person_id: 'gone', name: '王五', role: 'staff' } }
+      throw { response: { status: 404, data: { detail: '人员不存在' } } }
+    })
+    const screen = await render(form(client()))
+    await screen.getByRole('textbox', { name: '姓名', exact: true }).fill('王五')
+    photos('front.jpg')
+    await screen.getByRole('button', { name: '上传并添加人员' }).click()
+    await expect.element(screen.getByRole('alert')).toHaveTextContent('该人员已不存在')
+    await expect.element(screen.getByRole('textbox', { name: '姓名', exact: true })).toBeEnabled()
+    await expect.element(screen.getByRole('button', { name: '上传并添加人员' })).toBeEnabled()
+    requests.post.mockImplementation(async (url: string) => ({ data: url === '/people'
+      ? { person_id: 'p-new', name: '王五', role: 'staff' }
+      : { accepted: 1, rejected: [] } }))
+    await screen.getByRole('button', { name: '上传并添加人员' }).click()
+    await expect.element(screen.getByRole('status')).toHaveTextContent('本次通过 1 张')
+    expect(requests.post.mock.calls.map(([url]) => url)).toEqual(['/people', '/people/gone/photos', '/people', '/people/p-new/photos'])
   })
 
   it('创建响应不明时不自动重发创建，避免重试导致重复人员', async () => {
@@ -318,11 +340,12 @@ describe('视频 / 现场采集的共享工作区', () => {
     const screen = await render(form(qc, 'file'))
     await expect.element(screen.getByRole('button', { name: '视频文件添加', exact: true })).toHaveAttribute('aria-pressed', 'true')
     expect([...document.querySelectorAll('section[aria-label="视频文件添加工作区"] option')].map((option) => option.textContent)).toEqual(['file'])
-    expect([...document.querySelectorAll('section[aria-label="现场采集添加工作区"] option')].map((option) => option.textContent)).toEqual(['camera', 'url'])
+    expect(document.querySelector('section[aria-label="现场采集添加工作区"]')).toBeNull()
     await screen.getByRole('textbox', { name: '测试画面源' }).fill('test.mp4')
     await screen.getByRole('button', { name: '开始分析' }).click()
     await expect.poll(() => requests.post.mock.calls[0]).toEqual(['/captures', { kind: 'file', uri: 'test.mp4', duration_s: 15 }])
     await screen.getByRole('button', { name: '现场采集添加', exact: true }).click()
+    expect([...document.querySelectorAll('section[aria-label="现场采集添加工作区"] option')].map((option) => option.textContent)).toEqual(['camera', 'url'])
     await screen.getByRole('textbox', { name: '测试画面源' }).fill('camera-1')
     await screen.getByRole('button', { name: '开始采集' }).click()
     await expect.poll(() => requests.post.mock.calls[1]).toEqual(['/captures', { kind: 'camera', uri: 'camera-1', duration_s: 15 }])

@@ -29,6 +29,8 @@ class EnrollReport:
     person_id: str
     accepted: List[dict] = field(default_factory=list)
     rejected: List[dict] = field(default_factory=list)
+    portrait_image: Optional[np.ndarray] = None
+    portrait_face: Optional[dict] = None
 
     def to_dict(self):
         return {"person_id": self.person_id, "accepted": self.accepted, "rejected": self.rejected}
@@ -139,6 +141,8 @@ class EnrollmentService:
         anchor = max(ok, key=lambda c: c.quality.score)
         anchor.embedding = np.asarray(self.engine.embed(anchor.image, [anchor.face])[0], np.float32)
         self._save(person_id, name, self._pick(cands, anchor, max_templates, rep), rep)
+        if rep.accepted:
+            rep.portrait_image, rep.portrait_face = anchor.image, anchor.face
         return rep
 
     # ---------- 入口 2：注册视频（跟踪锚点人物，自动挑多角度帧） ----------

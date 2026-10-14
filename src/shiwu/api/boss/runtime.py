@@ -257,8 +257,44 @@ class BossRuntime:
         self._broadcast({"type": "monitor", **st})
         return st
 
+    def portrait_path(self, pid: str) -> Path:
+        safe = Path(str(pid)).name
+        return data_dir() / "portraits" / f"{safe}.jpg"
+
+    def save_portrait(self, pid: str, image, face=None, size: int = 128) -> None:
+        if image is None or getattr(image, "size", 0) == 0:
+            return
+        h, w = image.shape[:2]
+        if face and face.get("bbox"):
+            b = face["bbox"]
+            x, y, bw, bh = int(b["x"]), int(b["y"]), int(b["width"]), int(b["height"])
+            pad = int(max(bw, bh) * 0.25)
+            x1, y1 = max(0, x - pad), max(0, y - pad)
+            x2, y2 = min(w, x + bw + pad), min(h, y + bh + pad)
+            crop = image[y1:y2, x1:x2]
+        else:
+            side = min(h, w)
+            x0, y0 = (w - side) // 2, (h - side) // 2
+            crop = image[y0:y0 + side, x0:x0 + side]
+        if crop is None or crop.size == 0:
+            crop = image
+        thumb = cv2.resize(crop, (size, size))
+        ok, buf = cv2.imencode(".jpg", thumb, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        if not ok:
+            return
+        path = self.portrait_path(pid)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(buf.tobytes())
+
+    def load_portrait(self, pid: str) -> Optional[bytes]:
+        path = self.portrait_path(pid)
+        return path.read_bytes() if path.is_file() else None
+
     def forget_person(self, pid: str):
-        """删除人员时清理内存：事件缓冲、含该人的采集会话（其中有人脸裁图）。"""
+        """删除人员时清理内存：事件缓冲、含该人的采集会话（其中有人脸裁图）；头像文件一并删除。"""
+        path = self.portrait_path(pid)
+        if path.is_file():
+            path.unlink()
         kept = [e for e in self.events if (e.get("data") or {}).get("person_id") != pid]
         self.events.clear()
         self.events.extend(kept)
@@ -381,22 +417,28 @@ class BossRuntime:
                 logger.warning("restart %s failed: %s", r.name, e)
         return self.pipeline_status()
 
-    def start_defaults(self) -> dict:
+    def start_defaults(self, skip_camera: bool = False) -> dict:
         st = self.settings()
         srcs = st.get("default_sources") or []
         if not srcs and st.get("default_source"):
             srcs = [dict(st["default_source"], name=st["default_source"].get("name") or "主画面")]
         self.stop_pipeline()
         errors = []
+        skipped = 0
         for s in srcs:
+            kind = s.get("kind", "file")
+            uri = str(s.get("uri") or "")
+            if skip_camera and (kind == "camera" or uri.startswith("push://")):
+                skipped += 1
+                continue
             try:
-                self.start_pipeline(s.get("kind", "file"), s["uri"], s.get("loop", True),
+                self.start_pipeline(kind, s["uri"], s.get("loop", True),
                                     width=int(s.get("width") or st.get("camera_width") or 0),
                                     height=int(s.get("height") or st.get("camera_height") or 0),
                                     name=s.get("name") or "主画面")
             except Exception as e:  # noqa: BLE001
                 errors.append({"name": s.get("name"), "error": str(e)})
-        return dict(self.pipeline_status(), start_errors=errors)
+        return dict(self.pipeline_status(), start_errors=errors, cameras_skipped=skipped)
 
     def push_sources(self, name: str) -> list:
         """所有匹配 push://{name} 的源：监控管道 + 进行中的采集会话。"""
@@ -424,7 +466,7 @@ class BossRuntime:
         return None
 
     # ---------- 设置 ----------
-    DEFAULT_SETTINGS = {"default_source": None, "default_sources": [], "autostart": False, "auto_monitor": True,
+    DEFAULT_SETTINGS = {"default_source": None, "default_sources": [], "autostart": False, "auto_monitor": False,
                         "adaptive": True, "active_fps": 8, "idle_fps": 2, "camera_width": 1280,
                         "camera_height": 720, "max_sources": 4,
                         "snapshot_enabled": True, "snapshot_retention_days": 30,

@@ -10,7 +10,9 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import { api, errMsg, type Person } from '@/lib/api'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { usePhotoAdd } from '@/hooks/use-photo-add'
+import { api, errMsg, type Person, withToken } from '@/lib/api'
 import { Page } from './page'
 
 export function People() {
@@ -33,6 +35,7 @@ export function People() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>照片</TableHead>
                 <TableHead><span className='flex items-center gap-1.5'><UserRound className='size-4' />姓名</span></TableHead>
                 <TableHead><span className='flex items-center gap-1.5'><Users className='size-4' />分组</span></TableHead>
                 <TableHead>人脸模板</TableHead>
@@ -43,11 +46,11 @@ export function People() {
             <TableBody>
               {isLoading && (
                 <TableRow>
-                  <TableCell colSpan={5}>加载中…</TableCell>
+                  <TableCell colSpan={6}>加载中…</TableCell>
                 </TableRow>
               )}
               {!isLoading && people.length === 0 && (
-                <TableRow><TableCell colSpan={5} className='py-8 text-center text-muted-foreground'>
+                <TableRow><TableCell colSpan={6} className='py-8 text-center text-muted-foreground'>
                   <span className='inline-flex items-center gap-2'><Users className='size-5' />暂无人员，请点击「添加人员」录入照片或采集。</span>
                 </TableCell></TableRow>
               )}
@@ -81,6 +84,8 @@ function PersonRow({ p, onChanged }: { p: Person; onChanged: () => void }) {
     onSuccess: () => {
       setDel(false)
       toast.success('已删除')
+      const draft = usePhotoAdd.getState()
+      if (draft.person?.person_id === p.person_id) draft.dropGonePerson()
       onChanged()
     },
     onError: (e) => toast.error(errMsg(e)),
@@ -104,6 +109,12 @@ function PersonRow({ p, onChanged }: { p: Person; onChanged: () => void }) {
   })
   return (
     <TableRow>
+      <TableCell>
+        <Avatar className='size-10'>
+          {p.has_photo ? <AvatarImage src={withToken(`/people/${p.person_id}/photo.jpg`)} alt={`${p.name}的照片`} /> : null}
+          <AvatarFallback><UserRound className='size-4' /></AvatarFallback>
+        </Avatar>
+      </TableCell>
       <TableCell>
         {editing ? (
           <div className='flex gap-1'>
