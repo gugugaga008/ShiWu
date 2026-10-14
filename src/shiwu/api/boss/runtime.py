@@ -31,7 +31,7 @@ ROLES = {"boss": "老板", "leader": "领导", "staff": "同事", "whitelist": "
 
 
 class SourceRunner:
-    """一路视频源：管道 + 最新画面 + 启动参数。"""
+    """一路画面源：管道 + 最新画面 + 启动参数。"""
 
     def __init__(self, name: str):
         self.name = name
@@ -52,7 +52,7 @@ class BossRuntime:
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         self.gallery = LocalGallery()
         self._engine = None          # 识别管道专用
-        self._capture_engine = None  # 采集专用（引擎内部有 event loop，不能跨线程共用）
+        self._capture_engine = None  # 采集与补录共用；事件循环操作由引擎串行化
         self._engine_lock = threading.Lock()
         self.runners: Dict[str, SourceRunner] = {}
         self.mobile_preview = MobilePreview(self)
@@ -105,11 +105,8 @@ class BossRuntime:
 
     def _known_match(self, emb: np.ndarray):
         eng = self._capture_engine
-        if eng._refresh_pending:
-            eng._refresh_pending = False
-            eng.refresh_gallery()
+        fx = eng.export_embeddings()
         M, ids = self.gallery.matrix()
-        fx = eng._loop.run_until_complete(eng.recognizer.export_embeddings(None))
         if fx:
             M = np.vstack([M, np.stack(list(fx.values()))]) if len(M) else np.stack(list(fx.values()))
             ids = list(ids) + list(fx.keys())
@@ -319,7 +316,7 @@ class BossRuntime:
         name = name.strip()[:32] or "主画面"
         st = self.settings()
         if name not in self.runners and len(self.runners) >= int(st.get("max_sources", 4)):
-            raise ValueError(f"最多同时运行 {st.get('max_sources', 4)} 路视频源（可在设置中调整）")
+            raise ValueError(f"最多同时运行 {st.get('max_sources', 4)} 路画面源（可在设置中调整）")
         self.stop_pipeline(name)
         opts: Dict[str, Any] = {}
         if kind == "file":

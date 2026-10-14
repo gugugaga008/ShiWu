@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import threading
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -53,8 +54,10 @@ class LocalEngine(FaceEngine):
             providers=RC["providers"], database_path=str(RC["database_path"]),
             session_options=RC["session_options"],
         )
+        # 同一引擎可被采集、照片补录及监控线程共用；嵌套调用需可重入。
+        self._loop_lock = threading.RLock()
         self._loop = asyncio.new_event_loop()
-        self._loop.run_until_complete(self.recognizer.initialize())
+        self._run_recognizer(self.recognizer.initialize)
         self.gallery = gallery                       # LocalGallery：多模板
         self.include_library_templates = include_library_templates
         self.enable_tracking = enable_tracking
@@ -66,10 +69,26 @@ class LocalEngine(FaceEngine):
         return self._FaceTracker(track_thresh=TC["track_thresh"], match_thresh=TC["match_thresh"],
                                  track_buffer=TC["track_buffer"], frame_rate=TC["frame_rate"])
 
+    def _run_recognizer(self, call, *args, **kwargs):
+        with self._loop_lock:
+            # 先检查再创建协程，避免 close 后留下未 await 的协程。
+            if self._loop.is_closed():
+                raise RuntimeError("Event loop is closed")
+            return self._loop.run_until_complete(call(*args, **kwargs))
+
     def refresh_gallery(self) -> None:
-        self._loop.run_until_complete(self.recognizer.refresh_cache(self.org))
-        if self.gallery is not None:
-            self.gallery._cache = None
+        with self._loop_lock:
+            self._refresh_pending = False
+            self._run_recognizer(self.recognizer.refresh_cache, self.org)
+            if self.gallery is not None:
+                self.gallery._cache = None
+
+    def export_embeddings(self) -> Dict[str, np.ndarray]:
+        """串行读取识别库，供采集候选人物匹配使用。"""
+        with self._loop_lock:
+            if self._refresh_pending:
+                self.refresh_gallery()
+            return self._run_recognizer(self.recognizer.export_embeddings, self.org)
 
     def request_refresh(self) -> None:
         """线程安全：标记缓存失效，下一帧在引擎所在线程内刷新（人员变更后立即生效）。"""
@@ -79,13 +98,13 @@ class LocalEngine(FaceEngine):
 
     def embed(self, image, faces) -> list:
         """对给定人脸（需 landmarks_5）提取归一化 512 维特征。"""
-        return self._loop.run_until_complete(self.recognizer._extract_embeddings(image, faces))
+        return self._run_recognizer(self.recognizer._extract_embeddings, image, faces)
 
     def _match_with_gallery(self, image, faces):
         embs = self.embed(image, faces)
         M, ids = self.gallery.matrix()
         if self.include_library_templates:
-            fx = self._loop.run_until_complete(self.recognizer.export_embeddings(self.org))
+            fx = self.export_embeddings()
             if fx:
                 M = np.vstack([M, np.stack(list(fx.values())).astype(np.float32)]) if len(M) else \
                     np.stack(list(fx.values())).astype(np.float32)
@@ -95,30 +114,32 @@ class LocalEngine(FaceEngine):
         return [{"person_id": p, "similarity": s} for p, s in res]
 
     def reset(self) -> None:
-        if self.enable_tracking:
-            self.tracker = self._new_tracker()
+        with self._loop_lock:
+            if self.enable_tracking:
+                self.tracker = self._new_tracker()
 
     def process(self, image, frame_rate=None):
-        if self._refresh_pending:
-            self._refresh_pending = False
-            self.refresh_gallery()
-        faces = self.detector.detect_faces(image) or []
-        if self.tracker is not None:
-            faces = self.tracker.update(faces, frame_rate=frame_rate)
-        if not faces:
-            return []
-        if self.gallery is not None:
-            results = self._match_with_gallery(image, faces)
-        else:
-            results = self._loop.run_until_complete(
-                self.recognizer.recognize_faces(image, faces, organization_id=self.org))
-        out = []
-        for f, r in zip(faces, results):
-            f = dict(f)
-            f["person_id"] = r.get("person_id")
-            f["similarity"] = float(r.get("similarity") or 0.0)
-            out.append(f)
-        return out
+        with self._loop_lock:
+            if self._refresh_pending:
+                self.refresh_gallery()
+            faces = self.detector.detect_faces(image) or []
+            if self.tracker is not None:
+                faces = self.tracker.update(faces, frame_rate=frame_rate)
+            if not faces:
+                return []
+            if self.gallery is not None:
+                results = self._match_with_gallery(image, faces)
+            else:
+                results = self._run_recognizer(
+                    self.recognizer.recognize_faces, image, faces, organization_id=self.org)
+            out = []
+            for f, r in zip(faces, results):
+                f = dict(f)
+                f["person_id"] = r.get("person_id")
+                f["similarity"] = float(r.get("similarity") or 0.0)
+                out.append(f)
+            return out
 
     def close(self) -> None:
-        self._loop.close()
+        with self._loop_lock:
+            self._loop.close()
