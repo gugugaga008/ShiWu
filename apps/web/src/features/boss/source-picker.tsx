@@ -1,31 +1,43 @@
-import { useId } from 'react'
+import { useId, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Camera, FileVideo, Link2, RefreshCw, Shapes } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { api, type Video } from '@/lib/api'
+import { api } from '@/lib/api'
+import { cn } from '@/lib/utils'
 
 export type SourceValue = { kind: 'file' | 'url' | 'camera'; uri: string }
 type Cam = { id: string; name: string; path: string; busy?: string | null; fake?: boolean }
 type Cams = { devices: Cam[]; push: { id: string; name: string }[] }
 
 const ALL_KINDS: SourceValue['kind'][] = ['camera', 'file', 'url']
+const VIDEO_NAME = /\.(mp4|mov|mkv|avi|webm|m4v)$/i
+
+function localPath(file: File) {
+  const path = (file as File & { path?: string }).path
+  return typeof path === 'string' && path ? path : ''
+}
+
+function pickVideo(files: FileList | File[]) {
+  return [...files].find((file) => file.type.startsWith('video/') || VIDEO_NAME.test(file.name))
+}
 
 export function SourcePicker({ value, onChange, kinds = ALL_KINDS }: { value: SourceValue; onChange: (v: SourceValue) => void; kinds?: SourceValue['kind'][] }) {
   const id = useId()
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [dragging, setDragging] = useState(false)
   const electron = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent)
-  const { data: videos = [] } = useQuery({
-    queryKey: ['videos'],
-    enabled: kinds.includes('file'),
-    queryFn: async () => (await api.get<Video[]>('/sources/videos')).data,
-  })
   const cams = useQuery({
     queryKey: ['cameras'],
     enabled: kinds.includes('camera') && value.kind === 'camera',
     queryFn: async () => (await api.get<Cams>('/sources/cameras')).data,
   })
+  const applyVideo = (file: File) => {
+    const path = localPath(file)
+    onChange({ ...value, uri: path || file.name })
+  }
   return (
     <div className='grid gap-3 sm:grid-cols-[150px_1fr]'>
       <div className='grid gap-1.5'>
@@ -45,18 +57,36 @@ export function SourcePicker({ value, onChange, kinds = ALL_KINDS }: { value: So
         <Label htmlFor={`${id}-uri`}>{value.kind === 'file' ? <FileVideo className='size-4' aria-hidden /> : value.kind === 'camera' ? <Camera className='size-4' aria-hidden /> : <Link2 className='size-4' aria-hidden />}{value.kind === 'file' ? '视频文件' : value.kind === 'camera' ? '摄像头设备' : '流地址'}</Label>
         {value.kind === 'file' && (
           <div className='grid gap-2'>
-            <Select value={videos.some((video) => video.path === value.uri) ? value.uri : ''} onValueChange={(uri) => onChange({ ...value, uri })}>
-              <SelectTrigger id={`${id}-uri`} className='w-full'>
-                <SelectValue placeholder='选择已有视频' />
-              </SelectTrigger>
-              <SelectContent>
-                {videos.map((v) => (
-                  <SelectItem key={v.path} value={v.path}>
-                    {v.name} · {v.duration_s}s · {v.width}×{v.height}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div
+              className={cn(
+                'cursor-pointer rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground',
+                dragging && 'border-primary bg-primary/5 text-foreground',
+                value.uri && 'border-primary bg-primary/10 text-foreground',
+              )}
+              onClick={() => fileRef.current?.click()}
+              onDragOver={(event) => { event.preventDefault(); setDragging(true) }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(event) => {
+                event.preventDefault()
+                setDragging(false)
+                const file = pickVideo(event.dataTransfer.files)
+                if (file) applyVideo(file)
+              }}
+            >
+              <Input
+                ref={fileRef}
+                id={`${id}-uri`}
+                type='file'
+                accept='video/*,.mp4,.mov,.mkv,.avi,.webm,.m4v'
+                className='sr-only'
+                onClick={(event) => event.stopPropagation()}
+                onChange={(event) => {
+                  const file = pickVideo(event.target.files ?? [])
+                  if (file) applyVideo(file)
+                }}
+              />
+              <p>{value.uri ? `已选择 ${value.uri.split(/[\\/]/).pop()}` : '点击选择或拖放视频到此处'}</p>
+            </div>
             <Input aria-label='视频文件完整路径' placeholder='或粘贴本机视频文件完整路径' value={value.uri} onChange={(e) => onChange({ ...value, uri: e.target.value })} />
           </div>
         )}

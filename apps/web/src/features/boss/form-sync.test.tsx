@@ -123,7 +123,7 @@ describe('服务端数据与编辑表单同步', () => {
     const screen = await render(form(qc, <SettingsDialog open onOpenChange={() => {}} />))
     await screen.getByRole('button', { name: '邮件通知', exact: true }).click()
     await screen.getByPlaceholder('smtp.qq.com').fill('saved.smtp.local')
-    await screen.getByRole('button', { name: '保存设置', exact: true }).click()
+    await screen.getByRole('button', { name: '保存修改', exact: true }).click()
     await expect.poll(() => requests.put.mock.calls[0]).toEqual([
       '/settings', {
         ...response,

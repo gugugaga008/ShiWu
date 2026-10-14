@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSettingsDialog } from '@/hooks/use-settings-dialog'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Camera, ChevronRight, Gauge, Image, Mail, MonitorPlay, Plus, Power, QrCode, Save, Settings2, Trash2 } from 'lucide-react'
+import { Camera, ChevronRight, Gauge, Image, Mail, MonitorPlay, Power, QrCode, Save, Settings2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -15,13 +15,15 @@ import { api, errMsg } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { MobilePreview } from './mobile-preview'
 import { Page } from './page'
-import { SourcePicker, type SourceValue } from './source-picker'
+import { type SourceValue } from './source-picker'
 import { SourceAdd } from './source-add'
 
-type NamedSource = SourceValue & { name: string }
+type NamedSource = SourceValue & { name: string; loop?: boolean; width?: number; height?: number }
+type PipelineStatus = { pipelines: { name: string; running: boolean; source?: NamedSource }[]; max_sources: number }
 type Settings = {
   default_source: SourceValue | null
   default_sources: NamedSource[]
+  saved_sources?: NamedSource[]
   max_sources: number
   snapshot_enabled: boolean
   snapshot_retention_days: number
@@ -62,6 +64,11 @@ const MENU = [
   { label: '监控与隐私', items: [{ id: 'preview', label: '手机扫码预览', icon: QrCode }, { id: 'performance', label: '性能', icon: Gauge }, { id: 'snapshots', label: '触发快照', icon: Image }] },
   { label: '通知', items: [{ id: 'email', label: '邮件通知', icon: Mail }] },
 ] as const
+const KIND_LABEL: Record<string, string> = { camera: '摄像头', file: '视频文件', url: '网络流' }
+
+function UnsavedDot() {
+  return <span className='size-2 shrink-0 rounded-full bg-orange-500 shadow-[0_0_6px_rgba(249,115,22,0.85)] animate-pulse' aria-hidden />
+}
 
 export function SettingsPage() {
   const setOpen = useSettingsDialog((s) => s.setOpen)
@@ -119,10 +126,16 @@ function PreviewSettings() {
 function SettingsForm() {
   const { section, setSection } = useSettingsDialog()
   const { data } = useQuery({ queryKey: ['settings'], queryFn: async () => (await api.get<Settings>('/settings')).data })
+  const { data: pipe } = useQuery({
+    queryKey: ['pipeline'],
+    queryFn: async () => (await api.get<PipelineStatus>('/pipeline/status')).data ?? { pipelines: [], max_sources: 4 },
+    refetchInterval: 1500,
+  })
   const qc = useQueryClient()
   const [s, setS] = useState<Settings | null>(null)
   const [pw, setPw] = useState('')
   const [testTo, setTestTo] = useState('')
+  const [sourceDirty, setSourceDirty] = useState(false)
   const [loadedData, setLoadedData] = useState<Settings>()
   if (data && data !== loadedData) {
     setLoadedData(data)
@@ -135,7 +148,8 @@ function SettingsForm() {
   const payload = () => {
     const srcs = (s?.default_sources ?? []).filter((x) => x.uri)
     const to = String(s?.smtp_to ?? '').split(/[,;，；\s]+/).filter(Boolean)
-    return { ...s, default_sources: srcs, default_source: srcs[0] ?? null, smtp_to: to, ...(pw ? { smtp_password: pw } : {}) }
+    const { saved_sources: _saved, ...rest } = s ?? {}
+    return { ...rest, default_sources: srcs, default_source: srcs[0] ?? null, smtp_to: to, ...(pw ? { smtp_password: pw } : {}) }
   }
   const save = useMutation({
     mutationFn: async () => (await api.put('/settings', payload())).data,
@@ -160,6 +174,39 @@ function SettingsForm() {
   })
   if (!s) return <p role='status' className='p-6'>加载中…</p>
   const set = (p: Partial<Settings>) => setS({ ...s, ...p })
+  const catalog: NamedSource[] = (() => {
+    const map = new Map<string, NamedSource>()
+    for (const item of s.saved_sources ?? []) if (item.name) map.set(item.name, item)
+    for (const item of s.default_sources) if (item.name) map.set(item.name, item)
+    for (const p of pipe?.pipelines ?? []) {
+      if (!p.name) continue
+      const src = p.source
+      map.set(p.name, {
+        name: p.name,
+        kind: src?.kind ?? map.get(p.name)?.kind ?? 'camera',
+        uri: src?.uri ?? map.get(p.name)?.uri ?? '',
+        loop: src?.loop ?? map.get(p.name)?.loop,
+        width: src?.width ?? map.get(p.name)?.width,
+        height: src?.height ?? map.get(p.name)?.height,
+      })
+    }
+    return [...map.values()]
+  })()
+  const loaded = loadedData && {
+    ...loadedData,
+    default_sources: loadedData.default_sources?.length ? loadedData.default_sources : loadedData.default_source ? [{ name: '主画面', ...loadedData.default_source }] : [],
+    smtp_to: Array.isArray(loadedData.smtp_to) ? loadedData.smtp_to.join(', ') : loadedData.smtp_to,
+  }
+  const dirty: Record<string, boolean> = {
+    sources: sourceDirty,
+    defaults: JSON.stringify((s.default_sources ?? []).map((x) => x.name).sort()) !== JSON.stringify((loaded?.default_sources ?? []).map((x) => x.name).sort()),
+    startup: !!loaded && (s.autostart !== loaded.autostart || s.auto_monitor !== loaded.auto_monitor),
+    preview: false,
+    performance: !!loaded && (s.adaptive !== loaded.adaptive || s.active_fps !== loaded.active_fps || s.idle_fps !== loaded.idle_fps || s.max_sources !== loaded.max_sources),
+    snapshots: !!loaded && (s.snapshot_enabled !== loaded.snapshot_enabled || s.snapshot_retention_days !== loaded.snapshot_retention_days),
+    email: !!loaded && (s.smtp_host !== loaded.smtp_host || s.smtp_port !== loaded.smtp_port || s.smtp_security !== loaded.smtp_security || s.smtp_user !== loaded.smtp_user || s.smtp_from !== loaded.smtp_from || String(s.smtp_to) !== String(loaded.smtp_to) || s.smtp_verify_tls !== loaded.smtp_verify_tls || s.email_per_hour !== loaded.email_per_hour || s.email_min_interval_s !== loaded.email_min_interval_s || !!pw),
+  }
+  const settingsDirty = dirty.defaults || dirty.startup || dirty.performance || dirty.snapshots || dirty.email
   return (
     <>
       <div className='flex min-h-0 flex-col overflow-y-auto md:flex-row md:overflow-hidden'>
@@ -172,7 +219,7 @@ function SettingsForm() {
                   <button key={item.id} type='button' aria-current={section === item.id ? 'page' : undefined}
                     className={cn('flex items-center justify-between rounded-md px-2 py-2 text-start text-sm hover:bg-accent', section === item.id && 'bg-accent font-medium')}
                     onClick={() => setSection(item.id)}>
-                    <span className='flex items-center gap-2'><item.icon className='size-4 shrink-0' aria-hidden />{item.label}</span><ChevronRight className='size-3.5' aria-hidden />
+                    <span className='flex items-center gap-2'><item.icon className='size-4 shrink-0' aria-hidden />{item.label}{dirty[item.id] && <UnsavedDot />}</span><ChevronRight className='size-3.5' aria-hidden />
                   </button>
                 ))}
               </div>
@@ -180,51 +227,34 @@ function SettingsForm() {
           ))}
         </nav>
         <div className='min-w-0 flex-1 p-4 md:overflow-y-auto' aria-label='设置内容'>
-        <div hidden={section !== 'sources'}><SourceAdd /></div>
+        <div hidden={section !== 'sources'}><SourceAdd onDirtyChange={setSourceDirty} /></div>
         {section === 'preview' && <PreviewSettings />}
         {section === 'defaults' && <Card>
           <CardHeader>
             <CardTitle className='flex items-center gap-2'><Camera className='size-5' aria-hidden />默认画面源</CardTitle>
-            <CardDescription>桌面端启动（含开机自启）后自动开始监控；可设多路，同时运行</CardDescription>
+            <CardDescription>从已添加的画面源里勾选启动后自动监控的对象，不用再填源类型</CardDescription>
           </CardHeader>
           <CardContent className='grid gap-3'>
-            {s.default_sources.map((d, i) => (
-              <div key={i} className='grid gap-2 rounded-md border p-3'>
-                <div className='flex items-center gap-2'>
-                  <Input className='h-8 w-36' value={d.name} placeholder='名称' onChange={(e) => set({ default_sources: s.default_sources.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })} />
-                  <span className='flex-1 text-xs text-muted-foreground'>规则可按此名称限定画面源</span>
-                  <Button size='icon' variant='ghost' className='size-8' onClick={() => set({ default_sources: s.default_sources.filter((_, j) => j !== i) })}>
-                    <Trash2 />
-                  </Button>
+            {catalog.length === 0 && <p className='text-sm text-muted-foreground'>还没有画面源。请先在「画面源」添加并启动。</p>}
+            {catalog.map((item) => {
+              const on = s.default_sources.some((d) => d.name === item.name)
+              return (
+                <div key={item.name} className='flex items-center justify-between gap-3 rounded-md border p-3'>
+                  <div>
+                    <div className='font-medium'>{item.name}</div>
+                    <p className='text-xs text-muted-foreground'>{KIND_LABEL[item.kind] ?? item.kind}{item.uri ? ` · ${item.uri.split(/[\\/]/).pop()}` : ''}</p>
+                  </div>
+                  <label className='flex items-center gap-2 text-sm'>
+                    <Switch checked={on} onCheckedChange={(checked) => set({
+                      default_sources: checked
+                        ? [...s.default_sources.filter((d) => d.name !== item.name), item]
+                        : s.default_sources.filter((d) => d.name !== item.name),
+                    })} />
+                    启动后自动监控
+                  </label>
                 </div>
-                <SourcePicker value={d} onChange={(v) => set({ default_sources: s.default_sources.map((x, j) => (j === i ? { ...x, ...v } : x)) })} />
-              </div>
-            ))}
-            <Button variant='outline' size='sm' className='w-fit' disabled={s.default_sources.length >= s.max_sources}
-              onClick={() => set({ default_sources: [...s.default_sources, { name: s.default_sources.length ? '桌面' : '门口', kind: 'camera', uri: '' }] })}>
-              <Plus /> 添加默认源
-            </Button>
-            <div className='grid grid-cols-2 gap-3'>
-              <div className='grid gap-1.5'>
-                <Label>摄像头分辨率</Label>
-                <Select
-                  value={`${s.camera_width}x${s.camera_height}`}
-                  onValueChange={(v) => {
-                    const [w, h] = v.split('x').map(Number)
-                    set({ camera_width: w, camera_height: h })
-                  }}
-                >
-                  <SelectTrigger className='w-full'>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='640x480'>640×480</SelectItem>
-                    <SelectItem value='1280x720'>1280×720（推荐）</SelectItem>
-                    <SelectItem value='1920x1080'>1920×1080</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+              )
+            })}
           </CardContent>
         </Card>}
         {section === 'startup' && <Card>
@@ -350,9 +380,9 @@ function SettingsForm() {
         </div>
       </div>
       <div className='flex shrink-0 justify-end border-t p-4'>
-        {section === 'sources' || section === 'preview' ? <p className='text-sm text-muted-foreground'>本页操作立即生效</p> : <Button disabled={save.isPending || testMail.isPending} onClick={() => save.mutate()}>
-          <Save /> {save.isPending ? '保存中…' : '保存设置'}
-        </Button>}
+        <Button disabled={!settingsDirty || save.isPending || testMail.isPending} onClick={() => save.mutate()}>
+          <Save /> {save.isPending ? '保存中…' : '保存修改'}
+        </Button>
       </div>
     </>
   )

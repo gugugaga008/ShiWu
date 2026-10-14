@@ -46,6 +46,18 @@ describe('添加模式限制画面源类型', () => {
     await expect.element(path).toHaveValue('/tmp/user-video.mp4')
   })
 
+  it('视频文件支持点击选择或拖入', async () => {
+    const screen = await setup(['file'], { kind: 'file', uri: '' })
+    await expect.element(screen.getByText('点击选择或拖放视频到此处')).toBeVisible()
+    const file = new File(['clip'], 'clip.mp4', { type: 'video/mp4' })
+    Object.defineProperty(file, 'path', { value: '/tmp/clip.mp4' })
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')!
+    const dt = new DataTransfer()
+    dt.items.add(file)
+    input.parentElement!.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }))
+    await expect.element(screen.getByRole('textbox', { name: '视频文件完整路径' })).toHaveValue('/tmp/clip.mp4')
+  })
+
   it('现场采集只有摄像头与网络流，切换类型清空旧地址，不读取文件列表', async () => {
     const screen = await setup(['camera', 'url'], { kind: 'camera', uri: 'old-camera' })
     await screen.getByRole('combobox', { name: '源类型' }).click()

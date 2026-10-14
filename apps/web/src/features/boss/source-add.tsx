@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Camera, CirclePlay, FileVideo, MonitorPlay, Plus, Repeat2, RotateCw, Square, Tag } from 'lucide-react'
 import { toast } from 'sonner'
@@ -16,7 +16,7 @@ type PipelineStatus = { pipelines: { name: string; running: boolean }[]; max_sou
 
 const NAME_PRESETS = ['门口', '桌面', '走廊', '笔记本摄像头']
 
-export function SourceAdd() {
+export function SourceAdd({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) => void } = {}) {
   const qc = useQueryClient()
   const [name, setName] = useState('门口')
   const [src, setSrc] = useState<SourceValue>({ kind: 'file', uri: '' })
@@ -31,6 +31,9 @@ export function SourceAdd() {
   const cleanName = name.trim()
   const items = status?.pipelines ?? []
   const exists = items.some((p) => p.name === cleanName)
+  useEffect(() => {
+    onDirtyChange?.(Boolean(src.uri.trim()) || name.trim() !== '门口' || src.kind !== 'file')
+  }, [name, src.kind, src.uri, onDirtyChange])
   const start = useMutation({
     mutationFn: async () => {
       const [width, height] = res.split('x').map(Number)
@@ -74,16 +77,19 @@ export function SourceAdd() {
           <div className='grid gap-1.5'>
             <Label htmlFor='src-name'><Tag className='size-4' aria-hidden />名称</Label>
             <Input id='src-name' value={name} maxLength={32} onChange={(e) => setName(e.target.value)} placeholder='如：门口、桌面' />
-            <div className='flex flex-wrap gap-1'>
+            <div className='flex flex-wrap gap-1.5'>
               {NAME_PRESETS.map((n) => (
-                <Button key={n} type='button' size='sm' variant='ghost' className='h-6 px-2 text-xs' onClick={() => setName(n)}>{n}</Button>
+                <button key={n} type='button' onClick={() => setName(n)}
+                  className={name === n ? 'rounded-md bg-zinc-800 px-2.5 py-1 text-xs text-amber-300 ring-1 ring-amber-400/70' : 'rounded-md bg-zinc-800 px-2.5 py-1 text-xs text-zinc-100 hover:bg-zinc-700'}>
+                  {n}
+                </button>
               ))}
             </div>
           </div>
           <SourcePicker value={src} onChange={setSrc} />
-          {src.kind === 'camera' && !src.uri.startsWith('push://') && (
+          {src.kind === 'camera' && !!src.uri && !src.uri.startsWith('push://') && (
             <div className='grid gap-1.5'>
-              <Label htmlFor='source-resolution'><Camera className='size-4' aria-hidden />分辨率</Label>
+              <Label htmlFor='source-resolution'><Camera className='size-4' aria-hidden />采集分辨率</Label>
               <Select value={res} onValueChange={setRes}>
                 <SelectTrigger id='source-resolution' className='w-full'><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -92,6 +98,7 @@ export function SourceAdd() {
                   <SelectItem value='1920x1080'>1920×1080</SelectItem>
                 </SelectContent>
               </Select>
+              <p className='text-xs text-muted-foreground'>这是这路摄像头采集画面的清晰度，越高越清楚也越耗性能。未选设备时不用填。</p>
             </div>
           )}
           {src.kind === 'file' && <div className='flex items-center gap-2'>

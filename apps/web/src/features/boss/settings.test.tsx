@@ -41,7 +41,7 @@ describe('分层设置弹窗', () => {
     await expect.element(screen.getByRole('dialog')).toBeVisible()
     await expect.element(screen.getByRole('button', { name: /并启动/ })).toBeVisible()
     await screen.getByRole('button', { name: '默认画面源', exact: true }).click()
-    await expect.element(screen.getByRole('button', { name: '添加默认源' })).toBeVisible()
+    await expect.element(screen.getByText('启动后自动监控', { exact: true })).toBeVisible()
     expect(document.querySelector('input[placeholder="smtp.qq.com"]')).toBeNull()
     await screen.getByRole('button', { name: '邮件通知', exact: true }).click()
     await screen.getByPlaceholder('smtp.qq.com').fill('mail.example.test')
@@ -49,15 +49,14 @@ describe('分层设置弹窗', () => {
     expect(document.querySelector('input[placeholder="smtp.qq.com"]')).toBeNull()
     await screen.getByRole('button', { name: '邮件通知', exact: true }).click()
     await expect.element(screen.getByPlaceholder('smtp.qq.com')).toHaveValue('mail.example.test')
-    await screen.getByRole('button', { name: '保存设置', exact: true }).click()
+    await screen.getByRole('button', { name: '保存修改', exact: true }).click()
     await expect.poll(() => requests.put.mock.calls[0]?.[1].smtp_host).toBe('mail.example.test')
   })
 
   it('添加画面源在设置内立即启动，无需保存设置，跨菜单保留添加草稿', async () => {
     const screen = await setup()
     await screen.getByRole('textbox', { name: '名称', exact: true }).fill('走廊')
-    await screen.getByRole('combobox', { name: '视频文件', exact: true }).click()
-    await screen.getByRole('option', { name: /测试视频/ }).click()
+    await screen.getByRole('textbox', { name: '视频文件完整路径' }).fill('test.mp4')
     await screen.getByRole('button', { name: '邮件通知', exact: true }).click()
     await screen.getByRole('button', { name: '画面源', exact: true }).click()
     await expect.element(screen.getByRole('textbox', { name: '名称', exact: true })).toHaveValue('走廊')
@@ -82,7 +81,7 @@ describe('分层设置弹窗', () => {
       const dialog = document.querySelector('[role="dialog"]')!
       expect(dialog.scrollWidth).toBeLessThanOrEqual(dialog.clientWidth + 1)
       expect(dialog.getBoundingClientRect().height).toBeLessThanOrEqual(window.innerHeight)
-      await expect.element(screen.getByRole('button', { name: '保存设置', exact: true })).toBeVisible()
+      await expect.element(screen.getByRole('button', { name: '保存修改', exact: true })).toBeVisible()
     } finally {
       await page.viewport(1280, 720)
     }
