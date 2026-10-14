@@ -9,22 +9,34 @@ const q = new URLSearchParams(location.search)
 const port = q.get('port'), token = q.get('token'), name = q.get('name') || 'electron'
 const W = +q.get('w') || 1280, H = +q.get('h') || 720
 const st = document.getElementById('s'), v = document.getElementById('v')
-let ws, fps = 8, sent = 0, idle = false, stream
+let ws, fps = 8, sent = 0, idle = false, stream, stopping = false
 const log = (m) => { st.textContent = m; console.log('[camera] ' + m) }
+function stopCam() {
+  stopping = true
+  try { stream && stream.getTracks().forEach((t) => t.stop()) } catch (e) {}
+  stream = null
+  v.srcObject = null
+  try { if (ws) { ws.onclose = null; ws.close() } } catch (e) {}
+  ws = null
+  log('摄像头已关闭')
+}
 async function start() {
+  if (stopping) return
   try {
     stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: W }, height: { ideal: H }, deviceId: q.get('device') ? { exact: q.get('device') } : undefined }, audio: false })
   } catch (e) {
     log('无法打开摄像头：' + (e.name === 'NotReadableError' ? '设备被其他程序占用' : e.name === 'NotAllowedError' ? '没有摄像头权限' : e.message))
     return
   }
+  if (stopping) { stream.getTracks().forEach((t) => t.stop()); stream = null; return }
   v.srcObject = stream
   const t = stream.getVideoTracks()[0]
   log('摄像头：' + t.label + ' ' + JSON.stringify(t.getSettings().width) + 'x' + JSON.stringify(t.getSettings().height))
-  t.onended = () => { log('摄像头已断开，3 秒后重试'); setTimeout(start, 3000) }
+  t.onended = () => { if (stopping) return; log('摄像头已断开，3 秒后重试'); setTimeout(start, 3000) }
   connect()
 }
 function connect() {
+  if (stopping) return
   ws = new WebSocket(`ws://127.0.0.1:${port}/boss/camera/push?token=${encodeURIComponent(token)}&name=${name}`)
   ws.binaryType = 'arraybuffer'
   ws.onmessage = (m) => {
@@ -33,7 +45,7 @@ function connect() {
     // 服务端自适应抽帧：推送略高于处理帧率即可，省带宽/CPU
     if (d.type === 'ack' && d.target_fps) fps = Math.min(12, Math.max(1, d.target_fps * 1.5))
   }
-  ws.onclose = () => setTimeout(connect, 2000)
+  ws.onclose = () => { if (!stopping) setTimeout(connect, 2000) }
 }
 const c = document.createElement('canvas')
 async function loop() {
@@ -48,6 +60,8 @@ async function loop() {
   setTimeout(loop, interval)
 }
 start().then(loop)
+addEventListener('pagehide', stopCam)
+addEventListener('beforeunload', stopCam)
 // 静默失败是这类 bug 最难查的地方，所以主动报一次卡在哪一环：
 // 视频元素没拿到尺寸（窗口被系统当成隐藏）/ WebSocket 没连上 / 服务端没在监控。
 setTimeout(() => {

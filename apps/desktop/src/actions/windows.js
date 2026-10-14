@@ -38,7 +38,9 @@ foreach ($h in @(${[...ids].reverse().map(Number).join(',')})) { [void][BossWin]
 'ok'`
 }
 
-const MAC_LIST = 'tell application "System Events" to get name of (every process whose visible is true and background only is false and name is not "识务")'
+const MAC_EXCLUDE = 'name is not "识务" and name is not "Electron" and name is not "识务 Helper" and name is not "Electron Helper"'
+const MAC_LIST = `tell application "System Events" to get name of (every process whose visible is true and background only is false and ${MAC_EXCLUDE})`
+const MAC_HIDE = `tell application "System Events" to set visible of (every process whose visible is true and background only is false and ${MAC_EXCLUDE}) to false`
 
 async function minimizeWindows(sys, ownPids = []) {
   if (sys.platform === 'win32') {
@@ -49,8 +51,11 @@ async function minimizeWindows(sys, ownPids = []) {
   if (sys.platform === 'darwin') {
     const l = await osa(MAC_LIST, sys)
     const names = l.ok ? l.stdout.trim().split(/,\s*/).filter(Boolean) : []
-    const r = await osa('tell application "System Events" to set visible of (every process whose visible is true and name is not "识务") to false', sys)
-    return { ok: r.ok, ids: names, method: 'osascript', message: r.ok ? `已隐藏 ${names.length} 个程序` : r.stderr.trim().slice(0, 200) }
+    const r = await osa(MAC_HIDE, sys)
+    return {
+      ok: r.ok, ids: names, method: 'osascript',
+      message: r.ok ? `已隐藏 ${names.length} 个程序` : '需要在「系统设置 → 隐私与安全 → 辅助功能」中授权识务',
+    }
   }
   // Linux X11
   if (sys.which('xdotool')) {

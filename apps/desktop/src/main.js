@@ -126,7 +126,10 @@ function toast(title, body) {
 
 function notify(title, body) {
   if (!Notification.isSupported()) return false
-  new Notification({ title, body, icon: path.join(ASSETS, 'icons', 'icon.png'), urgency: 'critical' }).show()
+  new Notification({
+    title, body, icon: path.join(ASSETS, 'icons', 'icon.png'),
+    urgency: 'critical', silent: false, closeButtonText: '关闭',
+  }).show()
   return true
 }
 
@@ -136,8 +139,16 @@ function playSound(file, volume) {
     shell.beep()
     return Promise.resolve()
   }
+  let src = p
+  if (p.includes('.asar')) {
+    const tmp = path.join(app.getPath('temp'), 'shiwu-' + path.basename(p))
+    try { fs.copyFileSync(p, tmp); src = tmp } catch {}
+  }
   const win = new BrowserWindow({ show: false, webPreferences: { ...secureWeb, backgroundThrottling: false } })
-  win.loadFile(path.join(__dirname, 'windows', 'sound.html'), { query: { src: 'file://' + p, v: String(volume) } })
+  let played = false
+  win.webContents.on('page-title-updated', (_e, title) => { if (title === 'ok') played = true })
+  win.loadFile(path.join(__dirname, 'windows', 'sound.html'), { query: { src: 'file://' + src, v: String(volume) } })
+  setTimeout(() => { if (!played) shell.beep() }, 1500)
   setTimeout(() => !win.isDestroyed() && win.destroy(), 10000)
   return Promise.resolve()
 }
@@ -233,11 +244,18 @@ function openCameraWindow() {
 }
 
 function closeCameraWindow() {
-  if (cameraWin && !cameraWin.isDestroyed()) cameraWin.destroy()
+  if (cameraWin && !cameraWin.isDestroyed()) {
+    try {
+      const wc = cameraWin.webContents
+      if (wc && !wc.isDestroyed()) wc.executeJavaScript('typeof stopCam==="function"&&stopCam()', true).catch(() => {})
+    } catch {}
+    cameraWin.destroy()
+  }
   cameraWin = null
 }
 
 const isPush = (s) => s && s.kind === 'camera' && String(s.uri).startsWith('push://')
+let lastPush = false
 
 async function startMonitoring(src) {
   if (!src && (settings.default_sources || []).length) {
@@ -245,7 +263,8 @@ async function startMonitoring(src) {
     const st = await backend.json('/boss/pipeline/start-defaults', { method: 'POST' }).catch((e) => ({ start_errors: [{ error: e.message }] }))
     for (const e of st.start_errors || []) toast('画面源启动失败', `${e.name || ''} ${e.error}`)
     log(`[monitor] 已启动默认源 ${(st.pipelines || []).map((p) => p.name).join('、')}`)
-    if ((st.pipelines || []).some((p) => isPush(p.source))) openCameraWindow()
+    lastPush = (st.pipelines || []).some((p) => isPush(p.source))
+    if (lastPush && !paused) openCameraWindow()
     else closeCameraWindow()
     return
   }
@@ -264,7 +283,8 @@ async function startMonitoring(src) {
     return
   }
   log(`[monitor] 已启动 ${src.kind}:${src.uri}`)
-  if (src.kind === 'camera' && String(src.uri).startsWith('push://')) openCameraWindow()
+  lastPush = isPush(src)
+  if (lastPush && !paused) openCameraWindow()
   else closeCameraWindow()
 }
 
@@ -280,7 +300,11 @@ function applyAutostart(on) {
       fs.writeFileSync(f, `[Desktop Entry]\nType=Application\nName=识务\nExec="${exec}" --autostart\nX-GNOME-Autostart-enabled=true\n`)
     } else if (fs.existsSync(f)) fs.unlinkSync(f)
   } else {
-    app.setLoginItemSettings({ openAtLogin: !!on, args: ['--autostart'] })
+    app.setLoginItemSettings({
+      openAtLogin: !!on,
+      openAsHidden: !!on, // macOS：登录项以隐藏方式启动；args 主要对 Windows 有效
+      args: ['--autostart'],
+    })
   }
   log(`[autostart] ${on ? '已开启' : '已关闭'}`)
 }
@@ -318,11 +342,19 @@ function updateTray() {
 }
 
 // ---------------- 动作 ----------------
+function isTestEvent(ev) {
+  return ev.source === 'test' || ev.name === '测试'
+}
+
 async function onAction(ev) {
   log(`[action] 收到 ${ev.name || '?'}（${ev.role}）→ ${ev.actions.map((a) => a.type).join(', ')}`)
-  if (paused) return log('[action] 监控已暂停，忽略')
+  const test = isTestEvent(ev)
+  if (paused && !test) return log('[action] 监控已暂停，忽略')
   const results = await executor.execute({ ...ev, role_label: ROLE_LABEL[ev.role] || (ev.stranger ? '陌生人' : '') })
   backend.fetch('/boss/actions/result', { method: 'POST', body: JSON.stringify({ action_id: ev.id, results }) }).catch(() => {})
+  const failed = results.filter((r) => r.ok === false)
+  if (failed.length) toast('动作失败', failed.map((r) => `${r.type}：${r.message}`).join('；'))
+  else if (test) toast('测试动作', results.map((r) => `${r.type}：${r.message}`).join('；') || '已执行')
 }
 
 // 触发人离开画面超过 N 秒（规则开启「离开后自动恢复」）：解除遮挡 + 恢复之前被最小化的窗口
@@ -380,9 +412,15 @@ async function boot() {
   if (app.isPackaged) applyAutostart(!!settings.autostart)
   live = new Live(backend, { onAction, onLeave, onEvent, onSettings, onPipeline: (src, sources) => {
     // 管理界面里加了「桌面端摄像头」源时由这里开采集窗口（多路时任一路是推流即可）
-    if ((sources || [src]).some(isPush)) openCameraWindow()
+    lastPush = (sources || [src]).some(isPush)
+    if (lastPush && !paused) openCameraWindow()
     else closeCameraWindow()
-  }, onMonitor: (m) => { paused = !!m.paused; updateTray() } }, log)
+  }, onMonitor: (m) => {
+    paused = !!m.paused
+    updateTray()
+    if (paused) closeCameraWindow()
+    else if (lastPush) openCameraWindow()
+  } }, log)
   live.connect()
 
   if (!globalShortcut.register(UNLOCK, hideCover)) log(`[shortcut] ${UNLOCK} 注册失败（可能被占用）`)
@@ -402,7 +440,8 @@ async function boot() {
     if (st?.source?.kind === 'camera' && String(st.source.uri).startsWith('push://')) openCameraWindow()
   }, 3000))
 
-  const autostarted = process.argv.includes('--autostart')
+  const login = app.getLoginItemSettings?.() || {}
+  const autostarted = process.argv.includes('--autostart') || !!login.wasOpenedAsHidden || !!login.wasOpenedAtLogin
   if (env('SHIWU_START_HIDDEN', 'SHIWU_START_HIDDEN') !== '1' && !autostarted) openMain()
   if (settings.auto_monitor && !env('SHIWU_AUTOSTART_VIDEO', 'SHIWU_AUTOSTART_VIDEO')) await startMonitoring()
   // E2E：启动后自动开一路画面源

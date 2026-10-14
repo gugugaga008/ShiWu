@@ -118,8 +118,15 @@ const lockScreen = {
   async run(params, ctx) {
     const { sys } = ctx
     if (sys.platform === 'win32') return res(await sys.run('rundll32.exe', ['user32.dll,LockWorkStation']), '锁屏')
-    if (sys.platform === 'darwin')
-      return res(await osa('tell application "System Events" to keystroke "q" using {control down, command down}', sys), '锁屏')
+    if (sys.platform === 'darwin') {
+      const r = await osa('tell application "System Events" to keystroke "q" using {control down, command down}', sys)
+      if (r.ok) return ok('锁屏')
+      const r2 = await sys.run('/usr/bin/pmset', ['displaysleepnow'])
+      if (r2.ok) return ok('锁屏（显示器休眠）')
+      const r3 = await sys.run('/usr/bin/open', ['-a', 'ScreenSaverEngine'])
+      if (r3.ok) return ok('锁屏（屏保）')
+      return fail('锁屏失败：需要在「系统设置 → 隐私与安全 → 辅助功能」中授权识务')
+    }
     if (sys.platform === 'linux') {
       for (const [cmd, args] of [['loginctl', ['lock-session']], ['xdg-screensaver', ['lock']], ['dm-tool', ['lock']]]) {
         if (!sys.which(cmd)) continue

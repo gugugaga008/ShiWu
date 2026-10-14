@@ -58,9 +58,25 @@ test('macOS：记录可见程序名，恢复时逐个 set visible true', async (
   await new ActionExecutor({ ui: ui(memo), sys: s, logger: {} }).runOne({ type: 'minimize_all' }, { id: 'm' })
   const rec = memo.take('m')
   assert.deepStrictEqual(rec.ids, ['Safari', 'Microsoft Excel'])
+  assert.match(s.calls[0][2], /name is not "Electron"/)
+  assert.match(s.calls[0][2], /识务 Helper/)
+  assert.match(s.calls[1][2], /name is not "Electron"/)
+  assert.match(s.calls[1][2], /background only is false/)
   const back = await restoreWindows(s, rec)
   assert.strictEqual(back.restored, 2)
   assert.match(s.calls.at(-1)[2], /process "Microsoft Excel" to true/)
+})
+
+test('macOS：隐藏失败时提示辅助功能权限，排除 Electron', async () => {
+  const s = sys('darwin', [], (f, a) => {
+    if (a[1].includes('get name')) return { ok: true, stdout: 'Safari\n' }
+    return { ok: false, stdout: '', stderr: 'osascript is not allowed' }
+  })
+  const r = await new ActionExecutor({ ui: ui(new WindowMemo()), sys: s, logger: {} }).runOne({ type: 'minimize_all' }, { id: 'm2' })
+  assert.ok(!r.ok)
+  assert.match(r.message, /辅助功能/)
+  assert.match(s.calls[0][2], /name is not "Electron"/)
+  assert.match(s.calls[1][2], /name is not "Electron"/)
 })
 
 test('邮件动作由服务端执行，桌面端只记录', async () => {

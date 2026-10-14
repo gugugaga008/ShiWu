@@ -64,6 +64,7 @@ test('各平台系统命令', async () => {
     ['linux', 'mute', ['pactl'], 'pactl'],
     ['win32', 'mute', ['nircmd'], 'nircmd'],
     ['darwin', 'mute', [], 'osascript'],
+    ['darwin', 'lock_screen', [], 'osascript'],
   ]
   for (const [platform, type, tools, bin] of cases) {
     const sys = fakeSys(platform, tools)
@@ -94,6 +95,32 @@ test('切换程序与自定义命令参数校验', async () => {
   assert.ok(!(await ex.runOne({ type: 'command', params: {} }, {})).ok)
   const blocked = new ActionExecutor({ ui: fakeUi(), sys: fakeSys('linux'), settings: { allowCustomCommand: false }, logger: {} })
   assert.match((await blocked.runOne({ type: 'command', params: { cmd: 'echo hi' } }, {})).message, /禁用/)
+})
+
+test('macOS 锁屏：osascript 失败则回退 pmset / ScreenSaverEngine', async () => {
+  const sys1 = fakeSys('darwin', [], {}, { 'osascript -e': { ok: false, code: 1, stdout: '', stderr: 'not allowed' } })
+  const r1 = await new ActionExecutor({ ui: fakeUi(), sys: sys1, logger: {} }).runOne({ type: 'lock_screen' }, {})
+  assert.ok(r1.ok, r1.message)
+  assert.strictEqual(sys1.calls[0][0], 'osascript')
+  assert.deepStrictEqual(sys1.calls[1], ['/usr/bin/pmset', 'displaysleepnow'])
+  assert.strictEqual(sys1.calls.length, 2)
+
+  const sys2 = fakeSys('darwin', [], {}, {
+    'osascript -e': { ok: false, code: 1, stdout: '', stderr: 'x' },
+    '/usr/bin/pmset displaysleepnow': { ok: false, code: 1, stdout: '', stderr: 'x' },
+  })
+  const r2 = await new ActionExecutor({ ui: fakeUi(), sys: sys2, logger: {} }).runOne({ type: 'lock_screen' }, {})
+  assert.ok(r2.ok, r2.message)
+  assert.deepStrictEqual(sys2.calls[2], ['/usr/bin/open', '-a', 'ScreenSaverEngine'])
+
+  const sys3 = fakeSys('darwin', [], {}, {
+    'osascript -e': { ok: false, code: 1, stdout: '', stderr: 'x' },
+    '/usr/bin/pmset displaysleepnow': { ok: false, code: 1, stdout: '', stderr: 'x' },
+    '/usr/bin/open -a': { ok: false, code: 1, stdout: '', stderr: 'x' },
+  })
+  const r3 = await new ActionExecutor({ ui: fakeUi(), sys: sys3, logger: {} }).runOne({ type: 'lock_screen' }, {})
+  assert.ok(!r3.ok)
+  assert.match(r3.message, /辅助功能/)
 })
 
 test('Linux 无通知守护进程时通知用应用浮窗兜底；插件可扩展', async () => {
