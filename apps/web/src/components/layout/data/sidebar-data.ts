@@ -19,10 +19,12 @@ export const sidebarData: SidebarData = {
           title: '概览',
           url: '/',
           icon: LayoutDashboard,
+          tour: 'nav-overview',
         },
         {
           title: '人员管理',
           icon: Users,
+          tour: 'nav-people',
           items: [
             { title: '人员列表', url: '/people', icon: ContactRound },
             { title: '添加人员', url: '/people/add', icon: UserRoundPlus },
@@ -37,6 +39,7 @@ export const sidebarData: SidebarData = {
           title: '规则设置',
           url: '/rules',
           icon: Scale,
+          tour: 'nav-rules',
         },
         {
           title: '时间线',
@@ -57,6 +60,7 @@ export const sidebarData: SidebarData = {
           title: '设置',
           url: '/settings',
           icon: Settings,
+          tour: 'nav-settings',
         },
       ],
     },

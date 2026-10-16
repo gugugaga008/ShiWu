@@ -66,7 +66,7 @@ function NavBadge({ children }: { children: ReactNode }) {
 function SidebarMenuLink({ item, href }: { item: NavLink; href: string }) {
   const { setOpenMobile } = useSidebar()
   return (
-    <SidebarMenuItem>
+    <SidebarMenuItem data-tour={item.tour}>
       <SidebarMenuButton
         asChild
         isActive={checkIsActive(href, item)}
@@ -103,7 +103,7 @@ function SidebarMenuCollapsible({
       defaultOpen={checkIsActive(href, item, true)}
       className='group/collapsible'
     >
-      <SidebarMenuItem>
+      <SidebarMenuItem data-tour={item.tour}>
         <CollapsibleTrigger asChild>
           <SidebarMenuButton tooltip={item.title} isActive={checkIsActive(href, item, true)}>
             {item.icon && <item.icon />}

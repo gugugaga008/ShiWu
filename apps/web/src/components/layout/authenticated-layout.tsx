@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react'
 import { Outlet } from '@tanstack/react-router'
+import { Onboarding } from '@/features/boss/onboarding'
 import { useSettingsDialog } from '@/hooks/use-settings-dialog'
 import { getCookie } from '@/lib/cookies'
 import { cn } from '@/lib/utils'
@@ -41,6 +42,7 @@ export function AuthenticatedLayout({ children }: AuthenticatedLayoutProps) {
             {children ?? <Outlet />}
           </SidebarInset>
           {open && <Suspense fallback={null}><SettingsDialog open={open} onOpenChange={setOpen} /></Suspense>}
+          <Onboarding />
         </SidebarProvider>
       </LayoutProvider>
     </SearchProvider>

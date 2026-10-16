@@ -4,6 +4,8 @@ type BaseNavItem = {
   title: string
   badge?: string
   icon?: React.ElementType
+  /** 新手引导聚光灯锚点（data-tour），仅需要被引导高亮的项设置 */
+  tour?: string
 }
 
 type NavLink = BaseNavItem & {
