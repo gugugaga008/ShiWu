@@ -1,4 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:svgjs="http://svgjs.com/svgjs" width="24" height="24"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokewidth="2" strokelinecap="round" strokelinejoin="round">
-  <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"></path>
-</svg><style>@media (prefers-color-scheme: light) { :root { filter: contrast(1) brightness(0.8); } }
-</style></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <rect width="32" height="32" rx="7" fill="#b45309"/>
+  <g stroke="#fffbeb" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M7 12.5V8.8A1.8 1.8 0 0 1 8.8 7h3.7M19.5 7h3.7a1.8 1.8 0 0 1 1.8 1.8v3.7M25 19.5v3.7a1.8 1.8 0 0 1-1.8 1.8h-3.7M12.5 25H8.8A1.8 1.8 0 0 1 7 23.2v-3.7" stroke-width="2"/>
+    <path d="M16 12c-2.5 0-4 1.9-4 4.2 0 1.5.6 2.7 1.6 3.5.8.7 1.9 1 2.4 1 .5 0 1.6-.3 2.4-1 1-.8 1.6-2 1.6-3.5 0-2.3-1.5-4.2-4-4.2Z" stroke-width="1.8"/>
+    <path d="M10.5 21.5 22 10" stroke-width="1.7" opacity="0.55"/>
+    <circle cx="22" cy="10" r="2.4" fill="#fffbeb" stroke="none"/>
+  </g>
+</svg>
