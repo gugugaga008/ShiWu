@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Camera, CirclePlay, FileVideo, MonitorPlay, Plus, Repeat2, RotateCw, Square, Tag } from 'lucide-react'
+import { Camera, CirclePlay, FileVideo, MonitorPlay, Plus, Repeat2, RotateCw, Square, Tag, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -66,6 +70,18 @@ export function SourceAdd({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) 
     onSuccess: refresh,
     onError: (e) => toast.error(errMsg(e)),
   })
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null)
+  const remove = useMutation({
+    mutationFn: async (n: string) => (await api.delete(`/sources/${encodeURIComponent(n)}`)).data,
+    onSuccess: () => {
+      toast.success(`画面源「${pendingDelete}」已删除`)
+      setPendingDelete(null)
+      qc.invalidateQueries({ queryKey: ['pipeline'] })
+      qc.invalidateQueries({ queryKey: ['settings'] })
+      qc.invalidateQueries({ queryKey: ['source-names'] })
+    },
+    onError: (e) => { toast.error(errMsg(e)); setPendingDelete(null) },
+  })
   return (
     <div className='grid gap-4'>
       <Card>
@@ -118,7 +134,7 @@ export function SourceAdd({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) 
         <Card>
           <CardHeader>
             <CardTitle>已启动的画面源</CardTitle>
-            <CardDescription>停止、重启或手机扫码预览。电脑不显示实时画面。</CardDescription>
+            <CardDescription>停止只是暂停识别（可重启恢复），不会删除；删除需点垃圾桶确认。电脑不显示实时画面。</CardDescription>
           </CardHeader>
           <CardContent className='grid gap-2'>
             {items.map((p) => (
@@ -131,8 +147,11 @@ export function SourceAdd({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) 
                   <Button size='icon' variant='ghost' className='size-7' title='重启' onClick={() => restart.mutate(p.name)}>
                     <RotateCw />
                   </Button>
-                  <Button size='icon' variant='ghost' className='size-7' title='停止' onClick={() => stop.mutate(p.name)}>
+                  <Button size='icon' variant='ghost' className='size-7' title='停止（不删除）' onClick={() => stop.mutate(p.name)}>
                     <Square />
+                  </Button>
+                  <Button size='icon' variant='ghost' className='size-7 text-destructive hover:text-destructive' title='删除画面源' onClick={() => setPendingDelete(p.name)}>
+                    <Trash2 />
                   </Button>
                   <MobilePreview source={p.name} disabled={!p.running} autoOpen={autoPreview === p.name} />
                 </div>
@@ -141,6 +160,22 @@ export function SourceAdd({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) 
           </CardContent>
         </Card>
       )}
+      <AlertDialog open={pendingDelete !== null} onOpenChange={(o) => { if (!o) setPendingDelete(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除画面源「{pendingDelete}」？</AlertDialogTitle>
+            <AlertDialogDescription>
+              会先停止运行（若在跑），再从画面源目录与「默认画面源」中移除。此操作不可撤销。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction className='bg-destructive text-white hover:bg-destructive/90' disabled={remove.isPending} onClick={() => pendingDelete && remove.mutate(pendingDelete)}>
+              {remove.isPending ? '删除中…' : '删除'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

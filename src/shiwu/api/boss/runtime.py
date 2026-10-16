@@ -504,6 +504,9 @@ class BossRuntime:
         c = self.snapshots.cipher
         return c[1](raw).decode() if c else ""
 
+    def _write_settings(self, d: dict) -> None:
+        (data_dir() / "settings.json").write_text(json.dumps(d, ensure_ascii=False, indent=2), "utf-8")
+
     def _remember_source(self, source: dict) -> None:
         """画面源启动成功后记入目录，供「默认画面源」按名称勾选。"""
         try:
@@ -514,9 +517,25 @@ class BossRuntime:
             item = {k: source.get(k) for k in ("name", "kind", "uri", "loop", "width", "height")}
             others = [s for s in (d.get("saved_sources") or []) if s.get("name") != name]
             d["saved_sources"] = others + [item]
-            (data_dir() / "settings.json").write_text(json.dumps(d, ensure_ascii=False, indent=2), "utf-8")
+            self._write_settings(d)
         except Exception:  # noqa: BLE001
             logger.exception("remember source failed")
+
+    def delete_source(self, name: str) -> dict:
+        """删除一个已保存的画面源：先停管道（若在跑），再从目录与默认源里移除。"""
+        name = (name or "").strip()[:32]
+        if not name:
+            raise ValueError("缺少画面源名称")
+        self.stop_pipeline(name)
+        d = self.settings()
+        d["saved_sources"] = [s for s in (d.get("saved_sources") or []) if s.get("name") != name]
+        d["default_sources"] = [s for s in (d.get("default_sources") or []) if s.get("name") != name]
+        if (d.get("default_source") or {}).get("name") == name:
+            d["default_source"] = d["default_sources"][0] if d["default_sources"] else None
+        self._write_settings(d)
+        pub = self.public_settings()
+        self._broadcast({"type": "settings", "settings": pub})
+        return pub
 
     def save_settings(self, patch: dict) -> dict:
         d = self.settings()
@@ -530,7 +549,7 @@ class BossRuntime:
                 c = self.snapshots.cipher
                 raw = c[0](pw.encode()) if c else b"PLAIN:" + pw.encode()
                 d["smtp_password_enc"] = base64.b64encode(raw).decode()
-        (data_dir() / "settings.json").write_text(json.dumps(d, ensure_ascii=False, indent=2), "utf-8")
+        self._write_settings(d)
         self.email_limiter.per_hour = int(d.get("email_per_hour") or 0)
         self.email_limiter.min_interval_s = float(d.get("email_min_interval_s") or 0)
         pub = self.public_settings()

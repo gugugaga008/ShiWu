@@ -235,3 +235,19 @@ def test_cameras_settings_and_push(server):
     st = c.get("/pipeline/status").json()
     assert st["stats"]["frames_read"] >= 20 and st["stats"]["frames_processed"] >= 3
     c.post("/pipeline/stop")
+
+
+def test_source_stop_keeps_saved_and_delete_removes(server):
+    """停止画面源 ≠ 删除：停止后源仍在目录；调 DELETE /sources/{name} 才真删。"""
+    c = server["c"]
+    c.post("/pipeline/start", json={"kind": "file", "uri": str(V1), "loop": False, "name": "走廊"})
+    saved = [s["name"] for s in c.get("/settings").json().get("saved_sources", [])]
+    assert "走廊" in saved
+    c.post("/pipeline/stop", params={"name": "走廊"})
+    saved_after_stop = [s["name"] for s in c.get("/settings").json().get("saved_sources", [])]
+    assert "走廊" in saved_after_stop                      # 停止不删
+    assert not c.get("/pipeline/status").json()["pipelines"]  # 管道已停
+    c.delete("/sources/走廊")
+    final = c.get("/settings").json()
+    assert "走廊" not in [s["name"] for s in final.get("saved_sources", [])]
+    assert "走廊" not in [s["name"] for s in final.get("default_sources", [])]

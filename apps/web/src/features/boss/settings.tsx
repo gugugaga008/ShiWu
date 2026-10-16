@@ -156,6 +156,7 @@ function SettingsForm() {
     onSuccess: () => {
       toast.success('设置已保存')
       setPw('')
+      setSourceDirty(false)
       qc.invalidateQueries({ queryKey: ['settings'] })
     },
     onError: (e) => toast.error(errMsg(e)),
@@ -206,7 +207,8 @@ function SettingsForm() {
     snapshots: !!loaded && (s.snapshot_enabled !== loaded.snapshot_enabled || s.snapshot_retention_days !== loaded.snapshot_retention_days),
     email: !!loaded && (s.smtp_host !== loaded.smtp_host || s.smtp_port !== loaded.smtp_port || s.smtp_security !== loaded.smtp_security || s.smtp_user !== loaded.smtp_user || s.smtp_from !== loaded.smtp_from || String(s.smtp_to) !== String(loaded.smtp_to) || s.smtp_verify_tls !== loaded.smtp_verify_tls || s.email_per_hour !== loaded.email_per_hour || s.email_min_interval_s !== loaded.email_min_interval_s || !!pw),
   }
-  const settingsDirty = dirty.defaults || dirty.startup || dirty.performance || dirty.snapshots || dirty.email
+  // 任一分类有未保存改动即可保存：画面源草稿、默认源勾选、启动项、性能、快照、邮件
+  const settingsDirty = Object.values(dirty).some(Boolean)
   return (
     <>
       <div className='flex min-h-0 flex-col overflow-y-auto md:flex-row md:overflow-hidden'>

@@ -146,6 +146,15 @@ def pipeline_stop(name: Optional[str] = None):
     return runtime.stop_pipeline(name)
 
 
+@router.delete("/sources/{name}")
+def source_delete(name: str):
+    """删除一路画面源：停止运行并从已保存目录与默认源里移除。"""
+    try:
+        return runtime.delete_source(name)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 @router.get("/pipeline/status")
 def pipeline_status():
     return runtime.pipeline_status()

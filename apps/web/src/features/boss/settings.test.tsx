@@ -65,6 +65,15 @@ describe('分层设置弹窗', () => {
     expect(requests.put).not.toHaveBeenCalled()
   })
 
+  it('画面源表单一有草稿，「保存修改」立即可点', async () => {
+    const screen = await setup()
+    // 初始无任何改动：保存按钮禁用
+    await expect.element(screen.getByRole('button', { name: '保存修改', exact: true })).toBeDisabled()
+    // 输入名称即点亮（画面源分类出现脏点）
+    await screen.getByRole('textbox', { name: '名称', exact: true }).fill('走廊')
+    await expect.element(screen.getByRole('button', { name: '保存修改', exact: true })).toBeEnabled()
+  })
+
   it('设置内提供手机扫码入口，不展示电脑实时画面也不自动签发会话', async () => {
     const screen = await setup()
     await screen.getByRole('button', { name: '手机扫码预览', exact: true }).click()
