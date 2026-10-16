@@ -166,3 +166,13 @@
 - **影响范围**：人员添加/列表、设置默认源、规则测试弹窗、通知浮窗外观。不改鉴权、规则插件或 CI。保存设置不会清掉已记住的画面源目录。
 - **验证结果**：后端 `test_api.py`+`test_capture_identity.py` **16 passed、8 skipped**；`test_rules.py`+`test_rules_v11.py` **20 passed**。前端定向 6 文件 **51 passed**（people-add / capture-identity / settings / source-picker / rules / form-sync）。桌面 `actions.test.js`+`windows.test.js` **14 passed**。未跑全量前端 lint/build（仓库内既有 `set-state-in-effect` 与 `mobile-preview.test.tsx` TS2550 仍在），未做真机摄像头/界面操作验收。
 - **遗留事项**：规则其余动作可后续做插件；统计图表、现场采集、菜单折叠本轮未改。不发布安装包。
+
+- **时间**：26-10-17-0035
+- **涉及文件**：`apps/web/src/assets/logo.tsx`、`apps/web/public/images/favicon*`、`apps/desktop/assets/icons/*`、`src/shiwu/api/boss/{runtime,routes}.py`、`apps/web/src/features/boss/{onboarding.tsx,settings.tsx,source-add.tsx,settings.test.tsx}`、`apps/web/src/components/layout/{app-sidebar,authenticated-layout,nav-group,types.ts,data/sidebar-data.ts}`、`tests/test_api.py`
+- **修改内容**：
+  1. 重绘 Logo 与全套 favicon/桌面图标（取景框内人脸 + 预警扫线命中点）；
+  2. 新增首次启动聚光灯引导 `onboarding.tsx`（5 步走完：加画面源 → 登记人员 → 配规则 → 看概览），侧边栏项加 `data-tour` 锚点，完成/跳过写 `shiwu_onboarded` cookie；
+  3. 修复设置弹窗：任一分类有改动即亮「保存修改」（此前画面源草稿/勾选默认源不计入脏标记）；画面源卡片新增垃圾桶按钮+确认弹窗做真删除（`DELETE /boss/sources/{name}`），停止按钮只暂停；
+  4. 移除侧边栏底部「数据仅保存在本机」字样。
+- **验证结果**：前端 `vitest run --browser.headless` **144 passed**；后端 `pytest tests/` **147 passed、15 skipped**；`tsc -b`、`eslint` 改动文件无警告。
+- **遗留事项**：引导只写 cookie 不持久化到服务端；`mobile-preview.test.tsx` 既有未提交改动未混入本批提交。
