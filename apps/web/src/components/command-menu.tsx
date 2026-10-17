@@ -27,6 +27,8 @@ const SETTINGS_COMMANDS: { section: SettingsSection; title: string; extra: strin
   { section: 'performance', title: '性能', extra: [] },
   { section: 'snapshots', title: '触发快照', extra: [] },
   { section: 'email', title: '邮件通知', extra: [] },
+  { section: 'privacy', title: '数据与隐私', extra: ['数据', '导出', '清除'] },
+  { section: 'about', title: '关于与诊断', extra: ['版本', '诊断', '帮助'] },
 ]
 
 export function CommandMenu() {

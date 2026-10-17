@@ -151,8 +151,10 @@ function DataPrivacy({ s }: { s: Settings }) {
       const a = document.createElement('a')
       a.href = url
       a.download = `shiwu-export-${new Date().toISOString().slice(0, 10)}.json`
+      document.body.appendChild(a)
       a.click()
-      URL.revokeObjectURL(url)
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
       toast.success('已导出配置与事件')
     } catch (e) {
       toast.error(errMsg(e))

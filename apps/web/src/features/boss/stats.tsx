@@ -109,8 +109,10 @@ export function StatsPage() {
               const a = document.createElement('a')
               a.href = url
               a.download = `shiwu-stats-${days}d.csv`
+              document.body.appendChild(a)
               a.click()
-              URL.revokeObjectURL(url)
+              a.remove()
+              setTimeout(() => URL.revokeObjectURL(url), 1000)
             })
             .catch((e) => toast.error(errMsg(e)))
             .finally(() => setExporting(false))
