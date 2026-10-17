@@ -8,6 +8,7 @@ import { LayoutProvider } from '@/context/layout-provider'
 import { SearchProvider } from '@/context/search-provider'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/app-sidebar'
+import { BackendStatusBanner } from '@/components/layout/backend-status-banner'
 import { SkipToMain } from '@/components/skip-to-main'
 
 const SettingsDialog = lazy(() => import('@/features/boss/settings').then((m) => ({ default: m.SettingsDialog })))
@@ -25,6 +26,7 @@ export function AuthenticatedLayout({ children }: AuthenticatedLayoutProps) {
         <SidebarProvider defaultOpen={defaultOpen}>
           <SkipToMain />
           <AppSidebar />
+          <BackendStatusBanner />
           <SidebarInset
             className={cn(
               // Set content container, so we can use container queries

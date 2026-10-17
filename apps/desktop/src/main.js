@@ -33,6 +33,10 @@ let live = null
 let executor = null
 let paused = false
 let pipelineRunning = false
+let activeSources = []
+let booted = false
+let backendRecovering = false
+let backendRestarts = []
 let quitting = false
 let logStream = null
 let cameraWin = null
@@ -356,6 +360,64 @@ function onSettings(s) {
   if (prev.autostart !== settings.autostart && prev.autostart !== undefined) applyAutostart(settings.autostart)
 }
 
+// ---------------- 服务崩溃恢复 ----------------
+async function resumeSources(list) {
+  let started = 0
+  for (const src of list) {
+    const body = { ...src, loop: src.loop ?? true }
+    const r = await backend.fetch('/boss/pipeline/start', { method: 'POST', body: JSON.stringify(body) }).catch((e) => {
+      log(`[backend] 恢复画面源 ${src.name || ''} 失败：${e.message}`)
+      return null
+    })
+    if (r && r.ok) started += 1
+  }
+  return started
+}
+
+async function handleBackendExit(info) {
+  if (quitting || !booted || backendRecovering) return
+  backendRecovering = true
+  const now = Date.now()
+  backendRestarts = backendRestarts.filter((t) => now - t < 5 * 60 * 1000)
+  if (backendRestarts.length >= 3) {
+    backendRecovering = false
+    dialog.showErrorBox('识务', '识别服务反复异常退出，已停止自动重启。请重新打开识务；如仍失败，请复制诊断信息反馈。')
+    return
+  }
+  backendRestarts.push(now)
+  const resume = activeSources.slice()
+  const wasPaused = paused
+  log(`[backend] 异常退出 code=${info?.code ?? '?'}，尝试自动重启`)
+  toast('识别服务已断开', '正在自动重启，监控会暂时停止。')
+  const ok = await backend.restart()
+  if (!ok) {
+    backendRecovering = false
+    dialog.showErrorBox('识务', '识别服务无法自动重启。请退出并重新打开识务，或把诊断信息反馈给开发者。')
+    return
+  }
+  try {
+    settings = await backend.json('/boss/settings')
+    if (wasPaused) {
+      await backend.fetch('/boss/monitor/pause?source=tray', { method: 'POST' }).catch(() => {})
+      paused = true
+      toast('识别服务已恢复', '监控仍处于暂停状态。')
+    } else if (resume.length) {
+      const started = await resumeSources(resume)
+      pipelineRunning = started > 0
+      toast('识别服务已恢复', started ? `已重新启动 ${started} 路画面源` : '画面源未能自动恢复，请到画面源页检查。')
+    } else if (settings.auto_monitor) {
+      await startMonitoring(undefined, { allowCamera: false })
+      toast('识别服务已恢复', '请确认监控状态。')
+    } else {
+      toast('识别服务已恢复', '当前没有运行中的画面源。')
+    }
+  } catch (e) {
+    log(`[backend] 恢复后初始化失败：${e.message}`)
+  }
+  updateTray()
+  backendRecovering = false
+}
+
 // ---------------- 监控开关 / 托盘 ----------------
 async function setPaused(p) {
   try {
@@ -380,7 +442,14 @@ function updateTray() {
     { label: '用默认源开始监控', click: () => startMonitoring() },
     { label: '解除遮挡', accelerator: UNLOCK, enabled: !!coverWin, click: hideCover },
     { type: 'separator' },
-    { label: '测试老板动作', click: () => backend.json('/boss/monitor/test', { method: 'POST', body: JSON.stringify({ role: 'boss', name: '测试' }) }).catch(() => {}) },
+    { label: '测试老板动作（会执行规则）', click: async () => {
+      const { response } = await dialog.showMessageBox({
+        type: 'warning', buttons: ['取消', '执行测试'], defaultId: 0, cancelId: 0,
+        message: '测试老板动作',
+        detail: '会真实执行老板规则里的通知、遮挡、最小化、锁屏或命令。继续？',
+      })
+      if (response === 1) backend.json('/boss/monitor/test', { method: 'POST', body: JSON.stringify({ role: 'boss', name: '测试' }) }).catch(() => {})
+    } },
     { type: 'separator' },
     { label: '退出', click: () => { quitting = true; app.quit() } },
   ]))
@@ -428,7 +497,10 @@ async function boot() {
   logStream = fs.createWriteStream(path.join(logDir, 'desktop.log'), { flags: 'a' })
   // 开发模式默认用仓库 data/（与命令行启动的服务共用）；打包后用 userData
   const dataDir = env('SHIWU_USERDATA_DIR', 'SHIWU_USERDATA_DIR') || (app.isPackaged ? app.getPath('userData') : null)
-  backend = new Backend({ port: Number(env('SHIWU_PORT', 'SHIWU_PORT') || 7400), dataDir, log })
+  backend = new Backend({
+    port: Number(env('SHIWU_PORT', 'SHIWU_PORT') || 7400), dataDir, log,
+    onExit: (info) => { void handleBackendExit(info) },
+  })
 
   tray = new Tray(nativeImage.createFromPath(path.join(ASSETS, 'icons', process.platform === 'darwin' ? 'icon22.png' : 'icon32.png')))
   tray.on('click', openMain)
@@ -441,6 +513,7 @@ async function boot() {
     quitting = true
     return app.quit()
   }
+  booted = true
   log(`[backend] 就绪 ${backend.url}`)
 
   executor = new ActionExecutor({
@@ -458,7 +531,8 @@ async function boot() {
   live = new Live(backend, { onAction, onLeave, onEvent, onSettings, onPipeline: (src, sources) => {
     // 管理界面里加了「桌面端摄像头」源时由这里开采集窗口（多路时任一路是推流即可）
     const list = sources || [src]
-    pipelineRunning = list.filter(Boolean).length > 0
+    activeSources = list.filter((item) => item && item.kind && item.uri)
+    pipelineRunning = activeSources.length > 0
     lastPush = list.some(isPush)
     updateTray()
     if (lastPush && !paused) openCameraWindow()
@@ -482,7 +556,10 @@ async function boot() {
     } catch {}
   }, 15000)
 
-  if (!globalShortcut.register(UNLOCK, hideCover)) log(`[shortcut] ${UNLOCK} 注册失败（可能被占用）`)
+  if (!globalShortcut.register(UNLOCK, hideCover)) {
+    log(`[shortcut] ${UNLOCK} 注册失败（可能被占用）`)
+    toast('遮挡快捷键不可用', '快捷键可能被其他程序占用；请用托盘菜单「解除遮挡」关闭遮挡。')
+  }
   globalShortcut.register(PAUSE_KEY, () => setPaused(!paused))
 
   // 媒体权限只给本地摄像头采集窗口与本机管理界面
