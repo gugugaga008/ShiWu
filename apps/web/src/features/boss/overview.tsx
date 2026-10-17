@@ -12,7 +12,7 @@ import { Page } from './page'
 
 type Status = {
   server: string
-  pipeline: { running: boolean; source: { kind: string; uri: string } | null; stats: Record<string, number> | null }
+  pipeline: { running: boolean; error?: string | null; source: { kind: string; uri: string } | null; stats: Record<string, number> | null }
   people: { total: number; with_face: number; by_role: Record<string, number> }
   gallery: { templates: number; persons: number }
   recent_events: BossEvent[]
@@ -87,6 +87,7 @@ export function Overview() {
             <p className='text-xs text-muted-foreground'>
               {paused ? '画面采集已停止' : running ? `已触发 ${mon?.fired ?? 0} 次` : hasDefault ? '已配置默认画面源，点「开始监控」' : hasSaved ? '画面源已保存，可到画面源页启动' : '还没有画面源'}
             </p>
+            {p?.error && <p className='mt-1 text-xs text-destructive'>画面源错误：{p.error}</p>}
             {(running || paused) ? (
               <div className='mt-2 flex flex-wrap gap-2'>
                 <Button size='sm' variant={paused ? 'default' : 'outline'} onClick={() => toggle.mutate()}>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Camera, CirclePlay, FileVideo, MonitorPlay, Plus, Repeat2, RotateCw, Square, Tag, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -13,10 +14,11 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { api, errMsg } from '@/lib/api'
+import { useSettingsDialog } from '@/hooks/use-settings-dialog'
 import { MobilePreview } from './mobile-preview'
 import { SourcePicker, type SourceValue } from './source-picker'
 
-type PipelineStatus = { pipelines: { name: string; running: boolean }[]; max_sources: number }
+type PipelineStatus = { pipelines: { name: string; running: boolean; error?: string | null }[]; max_sources: number }
 export type SavedSource = SourceValue & { name: string; loop?: boolean; width?: number; height?: number }
 const KIND_LABEL: Record<string, string> = { camera: '摄像头', file: '视频文件', url: '网络流' }
 
@@ -162,9 +164,15 @@ export function SourceAdd({ onDirtyChange, savedSources = [] }: { onDirtyChange?
           <CardContent className='grid gap-2'>
             {items.map((p) => (
               <div key={p.name} className='flex flex-wrap items-center justify-between gap-2 rounded-md border p-3'>
-                <div>
+                <div className='min-w-0'>
                   <div className='font-medium'>{p.name}</div>
                   <p className='text-xs text-muted-foreground'>{p.running ? '运行中' : '已停止'}</p>
+                  {p.error && <p className='mt-1 max-w-80 text-xs text-destructive'>{p.error}</p>}
+                  {p.error && (
+                    <Link to='/sources' onClick={() => useSettingsDialog.getState().setOpen(false)} className='text-xs text-primary underline underline-offset-2'>
+                      查看画面源详情
+                    </Link>
+                  )}
                 </div>
                 <div className='flex items-center gap-1'>
                   <Button size='icon' variant='ghost' className='size-7' title='重启' onClick={() => restart.mutate(p.name)}>

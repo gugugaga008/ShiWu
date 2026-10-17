@@ -105,7 +105,7 @@ function PreviewSettings() {
     <Card>
       <CardHeader>
         <CardTitle className='flex items-center gap-2'><QrCode className='size-5' aria-hidden />手机扫码预览</CardTitle>
-        <CardDescription>关闭弹窗或设置，手机仍可查看至本次会话到期。电脑不展示实时画面。</CardDescription>
+        <CardDescription>关闭弹窗或设置，手机仍可查看至本次会话到期。电脑不持续显示实时画面；需要确认取景时可到「画面源」页抓取一帧。</CardDescription>
       </CardHeader>
       <CardContent className='grid gap-3'>
         {isError && <p role='alert'>无法读取画面源状态，请稍后重试。</p>}

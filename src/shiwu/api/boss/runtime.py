@@ -57,6 +57,8 @@ class BossRuntime:
         self._capture_engine = None  # 采集与补录共用；事件循环操作由引擎串行化
         self._engine_lock = threading.Lock()
         self.runners: Dict[str, SourceRunner] = {}
+        # Electron 采集窗口的 getUserMedia/零帧错误由前端上报，按源名暂存给状态接口。
+        self.camera_errors: Dict[str, str] = {}
         self.mobile_preview = MobilePreview(self)
         self._infer_lock = threading.Lock()
         self.events: Deque[dict] = deque(maxlen=300)
@@ -441,6 +443,15 @@ class BossRuntime:
                 errors.append({"name": s.get("name"), "error": str(e)})
         return dict(self.pipeline_status(), start_errors=errors, cameras_skipped=skipped)
 
+    def set_camera_error(self, name: str, error: str) -> None:
+        """Electron 摄像头窗口上报权限/占用/零帧错误；同一路只记录一次，收到帧后清除。"""
+        name = (name or "").strip()[:32] or "electron"
+        error = str(error or "").strip()[:500]
+        if not error or self.camera_errors.get(name) == error:
+            return
+        self.camera_errors[name] = error
+        self.eventlog.add("source_error", source=name, name=name, detail={"error": error})
+
     def push_sources(self, name: str) -> list:
         """所有匹配 push://{name} 的源：监控管道 + 进行中的采集会话。"""
         uri = f"push://{name}"
@@ -560,6 +571,7 @@ class BossRuntime:
         names = [name] if name else list(self.runners)
         stopped = False
         for n in names:
+            self.camera_errors.pop(n, None)
             r = self.runners.pop(n, None)
             if r:
                 self.mobile_preview.invalidate_runner(r)
@@ -574,7 +586,8 @@ class BossRuntime:
     def _runner_status(self, r: "SourceRunner") -> dict:
         p = r.pipeline
         running = bool(p and p._thread and p._thread.is_alive())
-        return {"name": r.name, "running": running, "error": p.source.last_error if p else None,
+        error = (p.source.last_error if p and p.source else None) or self.camera_errors.get(r.name)
+        return {"name": r.name, "running": running, "error": error,
                 "source": r.source, "started_at": r.started_at, "stats": p.summary() if p else None,
                 "faces": r.latest_faces if running else []}
 

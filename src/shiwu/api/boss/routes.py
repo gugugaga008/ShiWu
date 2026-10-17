@@ -160,6 +160,25 @@ def pipeline_status():
     return runtime.pipeline_status()
 
 
+class CameraErrorReport(BaseModel):
+    name: str = Field(..., min_length=1, max_length=32)
+    error: str = Field(..., min_length=1, max_length=500)
+
+
+@router.post("/camera/error")
+def camera_error(req: CameraErrorReport):
+    """Electron 采集窗口上报 getUserMedia/零帧错误，显示到画面源状态。"""
+    runtime.set_camera_error(req.name, req.error)
+    return {"ok": True}
+
+
+@router.get("/camera/error")
+def camera_error_get(name: str = Query(..., max_length=32), error: str = Query(..., max_length=500)):
+    """file:// 采集窗口用 no-cors GET 上报，避免跨源 preflight。"""
+    runtime.set_camera_error(name, error)
+    return {"ok": True}
+
+
 @router.get("/preview.jpg")
 def preview(source: Optional[str] = None):
     r = runtime.runners.get(source) if source else next(iter(runtime.runners.values()), None)
@@ -740,6 +759,7 @@ async def camera_push(websocket: WebSocket, token: str = Query(""), name: str = 
                     if src.push_frame(img):
                         accepted = True
             if accepted:
+                runtime.camera_errors.pop(name, None)
                 n += 1
                 if n % 25 == 0:
                     r = runtime.runner_for_push(name)

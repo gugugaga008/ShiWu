@@ -25,6 +25,7 @@ const KIND: Record<string, string> = {
   recognized: '识别',
   monitor_paused: '暂停监控',
   monitor_resumed: '恢复监控',
+  source_error: '画面源错误',
   action_result: '动作结果',
 }
 const ACTION: Record<string, string> = {
@@ -39,10 +40,10 @@ const ACTION: Record<string, string> = {
   log: '记录',
 }
 const FILTER: Record<string, string | undefined> = {
-  all: 'action,recognized,monitor_paused,monitor_resumed,action_result',
+  all: 'action,recognized,monitor_paused,monitor_resumed,source_error,action_result',
   action: 'action,action_result',
   recognized: 'recognized',
-  monitor: 'monitor_paused,monitor_resumed',
+  monitor: 'monitor_paused,monitor_resumed,source_error',
 }
 
 type Result = { type: string; ok: boolean; message: string }
@@ -54,7 +55,8 @@ function describe(r: Row) {
     return res.map((x) => `${x.ok ? '✓' : '✗'}${ACTION[x.type] ?? x.type}${x.ok ? '' : `（${x.message}）`}`).join('  ')
   }
   if (r.kind === 'recognized') return r.similarity != null ? `相似度 ${r.similarity.toFixed(3)}` : ''
-  return r.source ? `来源：${r.source === 'tray' ? '托盘' : r.source}` : ''
+  if (r.kind === 'source_error') return String((r.detail as { error?: string } | null)?.error ?? '画面源异常')
+  return r.source ? `来源：${r.source === 'tray' ? '托盘' : r.source === 'api' ? '管理界面' : r.source}` : ''
 }
 
 export function EventLogCard({ limit = 20 }: { limit?: number }) {
@@ -69,14 +71,14 @@ export function EventLogCard({ limit = 20 }: { limit?: number }) {
       <CardHeader className='flex flex-row items-center justify-between space-y-0'>
         <div>
           <CardTitle>事件日志</CardTitle>
-          <CardDescription>持久化在本机 events.db，每 2 秒刷新</CardDescription>
+          <CardDescription>保存在本机，自动刷新</CardDescription>
         </div>
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList>
             <TabsTrigger value='all'>全部</TabsTrigger>
             <TabsTrigger value='action'>动作</TabsTrigger>
             <TabsTrigger value='recognized'>识别</TabsTrigger>
-            <TabsTrigger value='monitor'>监控开关</TabsTrigger>
+            <TabsTrigger value='monitor'>监控</TabsTrigger>
           </TabsList>
         </Tabs>
       </CardHeader>

@@ -1,11 +1,12 @@
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Activity, MonitorPlay, RotateCw, Settings2, Square } from 'lucide-react'
+import { Activity, Camera, MonitorPlay, RotateCw, Settings2, Square } from 'lucide-react'
 import { useSettingsDialog } from '@/hooks/use-settings-dialog'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { api, errMsg, ROLE_LABEL, ROLE_VARIANT } from '@/lib/api'
+import { api, errMsg, ROLE_LABEL, ROLE_VARIANT, withToken } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { EventsTable } from './events-table'
 import { type LiveFace, useLive } from './live'
@@ -25,6 +26,30 @@ type PStatus = { running: boolean; pipelines: PItem[]; max_sources: number }
 const KIND_LABEL: Record<string, string> = { file: '文件', url: '网络流', camera: '摄像头' }
 const srcLabel = (s: PItem['source']) =>
   s.uri.startsWith('push://') ? '桌面端摄像头' : `${KIND_LABEL[s.kind] ?? s.kind} · ${s.uri.split('/').pop()}`
+
+function StillPreview({ source }: { source: string }) {
+  const [stamp, setStamp] = useState(0)
+  const [failed, setFailed] = useState(false)
+  const capture = () => { setFailed(false); setStamp(Date.now()) }
+  return (
+    <div className='grid justify-items-center gap-2'>
+      {stamp > 0 && !failed && (
+        <img
+          key={stamp}
+          src={withToken(`/preview.jpg?source=${encodeURIComponent(source)}&t=${stamp}`)}
+          alt='当前画面抓拍'
+          className='max-h-64 max-w-full rounded-md border bg-black object-contain'
+          onError={() => setFailed(true)}
+        />
+      )}
+      {failed && <p className='text-sm text-muted-foreground'>暂时没有可抓取的画面，请确认画面源正在产帧。</p>}
+      <Button size='sm' variant='outline' onClick={capture} disabled={!source}>
+        <Camera aria-hidden /> 抓取当前画面
+      </Button>
+      <p className='text-xs text-muted-foreground'>只抓取一张，不持续显示；需要连续画面请用手机扫码。</p>
+    </div>
+  )
+}
 
 function FaceBadges({ faces }: { faces: LiveFace[] }) {
   return (
@@ -70,13 +95,13 @@ export function Sources() {
         <Card>
           <CardHeader className='flex flex-row items-center justify-between'>
             <div>
-              <CardTitle className='flex items-center gap-2'><MonitorPlay className='size-5' aria-hidden />画面源状态 · 手机扫码预览</CardTitle>
+              <CardTitle className='flex items-center gap-2'><MonitorPlay className='size-5' aria-hidden />画面源状态 · 取景与手机预览</CardTitle>
               <CardDescription>
-                {items.length ? `运行中 ${items.filter((p) => p.running).length}/${items.length} 路 · 上限 ${st?.max_sources ?? 4} 路 · 共享一个识别引擎` : '没有运行中的画面源'}
+                {items.length ? `运行中 ${items.filter((p) => p.running).length}/${items.length} 路 · 最多 ${st?.max_sources ?? 4} 路，共用识别引擎` : '没有运行中的画面源'}
               </CardDescription>
             </div>
             <div className='flex items-center gap-2'>
-              <Badge variant={connected ? 'secondary' : 'outline'}>{connected ? '推送已连接' : '推送未连接'}</Badge>
+              <Badge variant={connected ? 'secondary' : 'outline'}>{connected ? '实时连接正常' : '实时连接断开'}</Badge>
               {items.length > 1 && (
                 <Button size='sm' variant='outline' onClick={() => stop.mutate(undefined)}>
                   <Square /> 全部停止
@@ -113,16 +138,16 @@ export function Sources() {
                           </Button>
                         </div>
                       </div>
-                      <div className='grid justify-items-center gap-3 bg-muted/20 px-3 py-8'>
-                        <p className='text-sm text-muted-foreground'>{p.error ?? '实时画面仅在手机上查看'}</p>
+                      <div className='grid justify-items-center gap-3 bg-muted/20 px-3 py-6'>
+                        {p.error && <p className='text-sm text-destructive'>{p.error}</p>}
+                        <StillPreview source={p.name} />
                         <MobilePreview source={p.name} disabled={!p.running} />
                       </div>
                       <div className='space-y-1 p-2'>
                         <FaceBadges faces={p.faces} />
                         {p.stats && (
                           <p className='text-xs text-muted-foreground'>
-                            已处理 {p.stats.frames_processed} 帧 · {p.stats.avg_proc_ms}ms/帧
-                            {p.error ? ` · ${p.error}` : ''}
+                            已处理 {p.stats.frames_processed} 帧 · 平均每帧 {Math.round(p.stats.avg_proc_ms ?? 0)}ms
                           </p>
                         )}
                       </div>
