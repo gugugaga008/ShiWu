@@ -9,6 +9,10 @@ import { Rules, type Rule } from './rules'
 const requests = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn(), post: vi.fn() }))
 vi.mock('@/lib/api', async (original) => ({ ...(await original<typeof import('@/lib/api')>()), api: requests }))
 vi.mock('./page', () => ({ Page: ({ children }: { children: ReactNode }) => <main>{children}</main> }))
+vi.mock('@tanstack/react-router', async (original) => ({
+  ...(await original<typeof import('@tanstack/react-router')>()),
+  useBlocker: () => ({ status: 'idle', proceed: vi.fn(), reset: vi.fn() }),
+}))
 
 const clients: QueryClient[] = []
 const actions = [
@@ -119,15 +123,21 @@ describe('规则设置单列与行为回归', () => {
     expect(requests.put.mock.calls[0][1][0].actions).toContainEqual({ type: 'command', params: { cmd: 'echo test' } })
   })
 
-  it('测试动作和删除仍作用于对应规则', async () => {
+  it('测试动作和删除都需要确认，且删除要保存后才生效', async () => {
     const screen = await renderRules()
     await screen.getByRole('button', { name: '测试动作', exact: true }).click()
+    await expect.element(screen.getByRole('alertdialog')).toBeVisible()
+    expect(requests.post).not.toHaveBeenCalled()
+    await screen.getByRole('alertdialog').getByRole('button', { name: '执行测试', exact: true }).click()
     await expect.poll(() => requests.post.mock.calls[0]).toEqual(['/monitor/test', { rule_id: 'boss', role: 'boss', name: '测试' }])
     await expect.element(screen.getByRole('dialog')).toBeVisible()
     await expect.element(screen.getByRole('heading', { name: '测试动作 · 测试' })).toBeVisible()
     await userEvent.keyboard('{Escape}')
     await expect.element(screen.getByRole('dialog')).not.toBeInTheDocument()
     await screen.getByRole('button', { name: '删除', exact: true }).click()
+    await expect.element(screen.getByRole('alertdialog')).toBeVisible()
+    expect(requests.put).not.toHaveBeenCalled()
+    await screen.getByRole('alertdialog').getByRole('button', { name: '删除', exact: true }).click()
     await expect.element(screen.getByText('识别到老板', { exact: true })).not.toBeInTheDocument()
     await screen.getByRole('button', { name: '保存规则', exact: true }).click()
     await expect.poll(() => requests.put.mock.calls[0]).toEqual(['/rules', []])

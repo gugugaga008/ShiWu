@@ -116,6 +116,8 @@ def test_stats_and_csv(tmp_path):
     el.add("recognized", ts=_today(11), person_id="p2", name="小李", role="staff", track_id=9, source="桌面")
     el.add("action", ts=_today(9, 1), person_id="p1", name="王总", role="boss", rule_id="boss", source="门口")
     el.add("action", ts=_today(10, 1, 1), person_id="p1", name="王总", role="boss", rule_id="boss", source="门口")
+    # 测试动作不应计入触发次数
+    el.add("action", ts=_today(12), person_id=None, name="测试", role="boss", rule_id="boss", source="test")
     el.add("recognized", ts=_today(9, days_ago=30), person_id="p1", name="王总", role="boss", track_id=5, source="门口")
     s = compute(el, days=7)
     assert s["totals"] == {"appearances": 4, "triggers": 2, "people": 2}

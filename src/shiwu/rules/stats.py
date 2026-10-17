@@ -40,7 +40,7 @@ def compute(eventlog, days: int = 7, person: Optional[str] = None, role: Optiona
             " COUNT(DISTINCT date(ts,'unixepoch','localtime') || COALESCE(source,'') || '#' || COALESCE(track_id,-1) || person_id) n"
             f" FROM event_log{w} AND kind='recognized' AND person_id IS NOT NULL GROUP BY wd, h")
     trig = ("SELECT date(ts,'unixepoch','localtime') d, COALESCE(role, CASE WHEN rule_id IS NOT NULL THEN rule_id END) r,"
-            f" COUNT(*) n FROM event_log{w} AND kind='action' GROUP BY d, r")
+            f" COUNT(*) n FROM event_log{w} AND kind='action' AND COALESCE(source,'') != 'test' GROUP BY d, r")
     with eventlog._lock:
         rows_app = eventlog._db.execute(app, a).fetchall()
         rows_heat = eventlog._db.execute(heat, a).fetchall()

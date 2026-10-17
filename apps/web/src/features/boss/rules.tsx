@@ -1,5 +1,6 @@
 import { type ReactNode, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useBlocker } from '@tanstack/react-router'
 import { Clock3, Filter, FlaskConical, MonitorPlay, Plus, Save, Trash2, UserRound, Users, Zap, type LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
@@ -55,15 +56,24 @@ const kindOf = (r: Rule) => (r.whitelist ? 'whitelist' : r.stranger ? 'stranger'
 const KIND_LABEL: Record<string, string> = { whitelist: '白名单', stranger: '陌生人', person: '人员', role: '分组' }
 type RulesResp = { rules: Rule[]; actions: { value: string; label: string }[] }
 
+const MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform)
+const UNLOCK_HINT = MAC ? '⌘ + ⌥ + B' : 'Ctrl + Alt + B'
+
+const ACTION_LABEL: Record<string, string> = {
+  notify: '系统通知', sound: '声音提醒', cover: '全屏遮挡', minimize_all: '最小化所有窗口',
+  focus_app: '切换到指定程序', mute: '静音', lock_screen: '锁屏', command: '运行自定义命令',
+  email: '发送邮件', log: '仅记录',
+}
+
 const ACTION_HINT: Record<string, string> = {
   notify: '桌面通知（Linux 无通知服务时用应用浮窗）',
   sound: '播放提示音',
-  cover: '全屏「假装在做表格」，快捷键 Ctrl+Alt+B 解除',
-  minimize_all: 'Win: Shell.MinimizeAll · macOS: osascript · Linux: xdotool/wmctrl（仅 X11）',
+  cover: `全屏「假装在做表格」，按 ${UNLOCK_HINT} 解除（也可用托盘菜单）`,
+  minimize_all: '隐藏所有已打开的程序窗口',
   focus_app: '把指定程序切到前台（按窗口标题/程序名）',
-  mute: 'Win: nircmd/媒体键 · macOS: osascript · Linux: pactl/amixer',
-  lock_screen: 'Win: LockWorkStation · macOS: ⌃⌘Q · Linux: loginctl/xdg-screensaver',
-  command: '运行自定义 shell 命令（谨慎使用）',
+  mute: '静音系统声音',
+  lock_screen: '锁定屏幕（会立即锁屏，请先保存工作）',
+  command: '运行自定义命令（谨慎使用）',
   email: '由识别服务按「设置 → 邮件通知」发送，附触发快照；有限流',
   log: '只写入事件日志',
 }
@@ -164,6 +174,8 @@ function RuleCard({ r, types, people, sources, onChange, onDelete }: {
   const toggle = (t: string, on: boolean) =>
     onChange({ ...r, actions: on ? [...r.actions, { type: t, params: {} }] : r.actions.filter((a) => a.type !== t) })
   const [testResult, setTestResult] = useState<{ ts?: number; snapshot_url?: string; actions?: { type: string }[]; name?: string; rule_id?: string } | null>(null)
+  const [confirmTest, setConfirmTest] = useState(false)
+  const dangerousTest = r.actions.some((a) => ['cover', 'minimize_all', 'lock_screen', 'command'].includes(a.type))
   const test = useMutation({
     mutationFn: async () => (await api.post('/monitor/test', { rule_id: r.id, role: r.role ?? 'boss', name: '测试' })).data,
     onSuccess: (data) => setTestResult(data),
@@ -335,7 +347,7 @@ function RuleCard({ r, types, people, sources, onChange, onDelete }: {
         </Field>
       </CardContent>
       <CardFooter className='justify-between'>
-        <Button size='sm' variant='outline' disabled={!r.enabled || kind === 'whitelist'} onClick={() => test.mutate()}>
+        <Button size='sm' variant='outline' disabled={!r.enabled || kind === 'whitelist'} onClick={() => setConfirmTest(true)}>
           <FlaskConical /> 测试动作
         </Button>
         <Button size='sm' variant='ghost' className='text-destructive' onClick={onDelete}>
@@ -347,9 +359,28 @@ function RuleCard({ r, types, people, sources, onChange, onDelete }: {
         onOpenChange={(open) => { if (!open) setTestResult(null) }}
         title={`测试动作 · ${testResult?.name ?? '测试'}`}
         timeLabel={testResult?.ts ? new Date(testResult.ts * 1000).toLocaleString('zh-CN', { hour12: false }) : undefined}
-        description={`${testResult?.rule_id ?? r.id} · ${(testResult?.actions ?? r.actions).map((a) => a.type).join('、') || '无动作'}`}
+        description={`${r.note?.trim() || '规则'} · ${(testResult?.actions ?? r.actions).map((a) => ACTION_LABEL[a.type] ?? a.type).join('、') || '无动作'}`}
         imageSrc={testResult?.snapshot_url ? withToken(testResult.snapshot_url.replace(/^\/boss/, '')) : null}
         imageAlt='测试快照'
+      />
+      <ConfirmDialog
+        open={confirmTest}
+        onOpenChange={setConfirmTest}
+        title='测试动作会真实执行'
+        desc={
+          <div className='grid gap-2'>
+            <p>识务会立即执行这条规则里的动作，不是预览：</p>
+            <p className='rounded bg-muted p-2 text-sm'>{r.actions.map((a) => ACTION_LABEL[a.type] ?? a.type).join('、') || '无动作'}</p>
+            {r.actions.filter((a) => a.type === 'command').map((a) => (
+              <p key={a.type} className='break-all rounded bg-muted p-2 font-mono text-xs'>命令：{String(a.params.cmd ?? '')}</p>
+            ))}
+            <p className='text-xs text-muted-foreground'>锁屏、最小化和命令会立即影响当前电脑；测试触发会写入时间线，但不计入统计。</p>
+          </div>
+        }
+        destructive={dangerousTest}
+        confirmText='执行测试'
+        cancelBtnText='取消'
+        handleConfirm={() => { setConfirmTest(false); test.mutate() }}
       />
     </Card>
   )
@@ -362,10 +393,14 @@ export function Rules() {
   const { data: sources = [] } = useQuery({ queryKey: ['source-names'], queryFn: async () => (await api.get<string[]>('/sources/names')).data })
   const [rules, setRules] = useState<Rule[]>([])
   const [loadedData, setLoadedData] = useState<RulesResp>()
+  const [dirty, setDirty] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null)
   if (data && data !== loadedData) {
     setLoadedData(data)
     setRules(data.rules)
+    setDirty(false)
   }
+  const blocker = useBlocker({ shouldBlockFn: () => dirty, withResolver: true, enableBeforeUnload: () => dirty })
   const [confirmCmd, setConfirmCmd] = useState<string[] | null>(null)
   const savedCmds = new Set(
     (data?.rules ?? []).flatMap((r) => r.actions.filter((a) => a.type === 'command').map((a) => `${r.id}:${a.params.cmd ?? ''}`))
@@ -380,6 +415,7 @@ export function Rules() {
     mutationFn: async () => (await api.put('/rules', rules)).data,
     onSuccess: () => {
       toast.success('规则已保存，立即生效')
+      setDirty(false)
       qc.invalidateQueries({ queryKey: ['rules'] })
     },
     onError: (e) => toast.error(errMsg(e)),
@@ -387,11 +423,11 @@ export function Rules() {
   return (
     <Page title='规则设置' desc='分组 / 人员 / 陌生人 / 白名单规则并存；按优先级从高到低，每张脸只匹配第一条满足条件的规则'>
       <div className='mb-4 flex flex-wrap gap-2'>
-        <Select value='' onValueChange={(k) => setRules((rs) => [...rs, blank(
+        <Select value='' onValueChange={(k) => { setDirty(true); setRules((rs) => [...rs, blank(
           k === 'person' ? { person_ids: people[0] ? [people[0].person_id] : [], priority: 50, note: '人员规则' } :
           k === 'stranger' ? { stranger: true, priority: 5, stranger_after_s: 5, note: '陌生人' } :
           k === 'whitelist' ? { whitelist: true, role: 'whitelist', priority: 100, min_frames: 1, actions: [], note: '白名单' } :
-          { role: 'boss', actions: [{ type: 'notify', params: {} }], note: '分组规则' })])}>
+          { role: 'boss', actions: [{ type: 'notify', params: {} }], note: '分组规则' })]) }}>
           <SelectTrigger className='w-36'>
             <Plus /> <span>新增规则</span>
           </SelectTrigger>
@@ -402,9 +438,7 @@ export function Rules() {
             <SelectItem value='whitelist'>白名单规则</SelectItem>
           </SelectContent>
         </Select>
-        <Button onClick={trySave}>
-          <Save /> 保存规则
-        </Button>
+        <span className='self-center text-xs text-muted-foreground'>修改后点底部「保存规则」</span>
       </div>
       <ConfirmDialog
         open={!!confirmCmd}
@@ -426,10 +460,42 @@ export function Rules() {
       <div className='grid grid-cols-1 gap-4'>
         {[...rules].sort((a, b) => b.priority - a.priority).map((r) => (
           <RuleCard key={r.id} r={r} types={data?.actions ?? []} people={people} sources={sources}
-            onChange={(nr) => setRules((rs) => rs.map((x) => (x.id === r.id ? nr : x)))}
-            onDelete={() => setRules((rs) => rs.filter((x) => x.id !== r.id))} />
+            onChange={(nr) => { setDirty(true); setRules((rs) => rs.map((x) => (x.id === r.id ? nr : x))) }}
+            onDelete={() => setPendingDelete(r.id)} />
         ))}
       </div>
+      {dirty && (
+        <div className='sticky bottom-0 z-20 -mx-4 mt-4 flex items-center justify-between gap-3 border-t bg-background/95 px-4 py-3 backdrop-blur'>
+          <span className='text-sm text-muted-foreground'>有未保存的规则修改</span>
+          <Button onClick={trySave} disabled={save.isPending}>
+            <Save /> {save.isPending ? '保存中…' : '保存规则'}
+          </Button>
+        </div>
+      )}
+      <ConfirmDialog
+        open={!!pendingDelete}
+        onOpenChange={(o) => !o && setPendingDelete(null)}
+        title='删除这条规则？'
+        desc='删除后还需要点击「保存规则」才会真正生效；未保存就离开会保留原规则。'
+        destructive
+        confirmText='删除'
+        cancelBtnText='取消'
+        handleConfirm={() => {
+          setRules((rs) => rs.filter((x) => x.id !== pendingDelete))
+          setPendingDelete(null)
+          setDirty(true)
+        }}
+      />
+      <ConfirmDialog
+        open={blocker.status === 'blocked'}
+        onOpenChange={(o) => { if (!o) blocker.reset?.() }}
+        title='有未保存的规则修改'
+        desc='离开后这些修改会丢失。可以继续编辑，或放弃修改后再离开。'
+        destructive
+        confirmText='放弃修改'
+        cancelBtnText='继续编辑'
+        handleConfirm={() => { setDirty(false); blocker.proceed?.() }}
+      />
     </Page>
   )
 }
