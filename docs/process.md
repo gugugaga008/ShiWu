@@ -176,3 +176,21 @@
   4. 移除侧边栏底部「数据仅保存在本机」字样。
 - **验证结果**：前端 `vitest run --browser.headless` **144 passed**；后端 `pytest tests/` **147 passed、15 skipped**；`tsc -b`、`eslint` 改动文件无警告。
 - **遗留事项**：引导只写 cookie 不持久化到服务端；`mobile-preview.test.tsx` 既有未提交改动未混入本批提交。
+
+
+---
+
+## 26-10-17-2148 按用户视角审查结果修复
+
+- **目标**：按上一轮用户视角审查逐项修复首次使用、监控状态、画面源失败可见性、规则保存、时间线/统计、隐私数据面板、导出 token、服务崩溃恢复、文案与安装说明；按批次提交，不混入无关修改。
+- **涉及文件及主要修改**：
+  1. 首次引导与监控入口：`apps/web/src/features/boss/{onboarding,overview}.tsx`、`apps/web/src/components/layout/data/sidebar-data.ts`、`apps/desktop/src/main.js`、`apps/web/src/features/boss/{source-add,settings}.tsx`。修正引导 rect 首个 tick 比较、最后一步残留高亮、遮罩拦截点击；完成页增加画面源/人员检查；总览按默认/已保存源显示开始监控/选择源；托盘按 `pipeline_running` 显示未开始/监控中/已暂停；设置增加已保存画面源列表可直接重启，添加成功清空表单。
+  2. 画面源错误与取景：`src/shiwu/api/boss/{runtime,routes}.py`、`apps/desktop/src/windows/camera.html`、`apps/web/src/features/boss/{sources,source-add,overview,eventlog}.tsx`。Electron 摄像头权限/占用/零帧上报 `/boss/camera/error`，按源名显示到总览、设置和事件日志；画面源状态页恢复侧栏入口并增加 `/boss/preview.jpg` 单帧取景，不建立持续桌面预览。
+  3. 规则与测试动作：`apps/web/src/features/boss/rules.tsx`、`src/shiwu/rules/stats.py`。增加未保存标记、离开拦截、底部吸附保存条、删除确认；测试动作先确认会真实执行的动作/命令；测试触发不再计入统计触发次数；动作提示改为用户语言并区分 macOS/其他平台遮挡快捷键。
+  4. 时间线与统计：`src/shiwu/api/boss/routes.py`、`apps/web/src/features/boss/{timeline,stats}.tsx`、`tests/test_v11_e2e.py`。时间线改为 `before_id` 游标分页、每页 100 条、去重重叠；规则名用备注/类型替代内部 id；统计按 `person_id` 取序列、同名加序号、空名字显示未知人员、前 6 人之外合并为「其他」、明细展示全部日期并横向滚动、说明改为历史/已删除身份。
+  5. 数据隐私与文案：`src/shiwu/api/boss/{runtime,routes}.py`、`src/shiwu/{notify/snapshots.py,rules/eventlog.py}`、`apps/web/src/features/boss/{settings,people,people-add,eventlog,stats}.tsx`、`apps/web/src/hooks/use-settings-dialog.ts`、`apps/web/src/routes/__root.tsx`。新增「数据与隐私」面板（路径/打开目录/导出配置与事件/清除全部人脸历史）、脱敏诊断接口与「关于与诊断」；删除人员弹窗明确历史快照保留；照片拒绝原因中文化、支持放大预览；CSV 改为带 Token 的请求下载；toast 移到底部居中。
+  6. 服务自愈：`apps/desktop/src/{backend,main}.js`、`apps/web/src/components/layout/{backend-status-banner,authenticated-layout}.tsx`。Python 异常退出后复用原端口/Token 自动重启，5 分钟最多 3 次，恢复崩溃前运行画面源和暂停状态；全局连接中断提示条在恢复后自动失效；托盘测试动作先确认，遮挡快捷键注册失败弹提示。
+  7. 收尾：桌面测试脚本兼容 Node 24，桌面端版本同步到 1.2.0，搜索增加数据/诊断设置项，导出下载在 Electron 中延迟释放 Blob URL；README、架构、摄像头文档同步单帧取景、数据面板、自愈与签名限制。
+- **影响范围**：管理界面首次引导/总览/画面源/规则/时间线/统计/人员添加/设置；后端统计、时间线分页、摄像头错误上报、数据导出/清除/诊断；桌面端服务自愈、托盘状态与摄像头错误上报。无新增依赖、无数据库迁移、鉴权与手机 LAN 预览边界不变；电脑端仍不建立持续实时预览，只增加用户点击的单帧取景；清除数据保留规则/设置/画面源。默认构建仍为 ad-hoc 签名，未做公证。
+- **验证结果**：后端 `pytest -q tests` **147 passed、16 skipped**（缺 V1/V2 素材），1 条既有 httpx 弃用警告；前端 `vitest run --browser.headless` **17 文件、147 passed**；桌面 `pnpm --dir apps/desktop test` **14 passed**；`tsc -b`、`vite build`、改动文件 ESLint **0 error** 通过。全量 ESLint 仍有 `mobile-preview.tsx` 既有 4 个 error（refs during render / exhaustive-deps / setState in effect），本轮未改该文件。实际 Electron 应用 kill Python 后自动重启成功并恢复视频画面源、WS 重连；浏览器临时服务验证了引导高亮、总览开始/错误、停止后重启、单帧取景、时间线 120 条加载更多、统计空名/同名/测试排除、规则离开拦截与测试确认、数据导出无 Token、清除后刷新、诊断、重看引导与连接中断提示条。实际数据未执行清除；为验证自愈临时启动并删除测试视频源，期间可能新增少量识别事件。
+- **遗留事项**：真实摄像头权限拒绝、真实手机扫码、Windows/Linux 真机、安装包与公证仍需人工验收；完整备份仅导出配置/事件，人脸模板与快照需复制数据目录；全量 lint 的 `mobile-preview.tsx` 既有错误与用户未提交的 `mobile-preview.test.tsx` 保持原样。
