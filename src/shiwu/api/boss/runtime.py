@@ -575,7 +575,7 @@ class BossRuntime:
         names = [name] if name else list(self.runners)
         stopped = False
         for n in names:
-            self.camera_errors.pop(n, None)
+            getattr(self, "camera_errors", {}).pop(n, None)
             r = self.runners.pop(n, None)
             if r:
                 self.mobile_preview.invalidate_runner(r)
@@ -590,7 +590,7 @@ class BossRuntime:
     def _runner_status(self, r: "SourceRunner") -> dict:
         p = r.pipeline
         running = bool(p and p._thread and p._thread.is_alive())
-        error = (p.source.last_error if p and p.source else None) or self.camera_errors.get(r.name)
+        error = (p.source.last_error if p and p.source else None) or getattr(self, "camera_errors", {}).get(r.name)
         return {"name": r.name, "running": running, "error": error,
                 "source": r.source, "started_at": r.started_at, "stats": p.summary() if p else None,
                 "faces": r.latest_faces if running else []}

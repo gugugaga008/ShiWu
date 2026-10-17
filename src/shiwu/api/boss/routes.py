@@ -771,6 +771,12 @@ async def data_wipe(req: DataWipeRequest):
             await _delete_person(pid)
         except HTTPException:
             pass
+    # 清掉不属于当前成员的历史/孤立模板与头像，避免“删了人但模型还在”。
+    for pid in list(runtime.gallery.count()):
+        runtime.gallery.remove_person(pid)
+    for path in (data_dir() / "portraits").glob("*"):
+        if path.is_file():
+            path.unlink(missing_ok=True)
     runtime.eventlog.clear()
     snapshots = runtime.snapshots.purge_all()
     runtime.invalidate_people()
