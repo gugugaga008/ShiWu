@@ -15,6 +15,10 @@ vi.mock('./page', () => ({
   Page: ({ children }: { children: ReactNode }) => <main>{children}</main>,
 }))
 vi.mock('./source-picker', () => ({ SourcePicker: () => null }))
+vi.mock('@tanstack/react-router', async (original) => ({
+  ...(await original<typeof import('@tanstack/react-router')>()),
+  useBlocker: () => ({ status: 'idle', proceed: vi.fn(), reset: vi.fn() }),
+}))
 
 const clients: QueryClient[] = []
 

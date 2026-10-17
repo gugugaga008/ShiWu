@@ -1,14 +1,14 @@
 {
   "name": "shiwu-desktop",
   "productName": "识务",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "识务：本地人脸识别预警桌面端（Electron 主进程 + 托管 Python 服务）",
   "license": "AGPL-3.0-only",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node --test test/",
+    "test": "node --test test/actions.test.js test/windows.test.js",
     "dist:linux": "electron-builder --linux AppImage deb --x64",
     "dist:win": "electron-builder --win nsis --x64",
     "dist:mac": "electron-builder --mac dmg"
