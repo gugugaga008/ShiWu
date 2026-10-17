@@ -251,3 +251,16 @@ def test_source_stop_keeps_saved_and_delete_removes(server):
     final = c.get("/settings").json()
     assert "走廊" not in [s["name"] for s in final.get("saved_sources", [])]
     assert "走廊" not in [s["name"] for s in final.get("default_sources", [])]
+
+
+def test_data_export_diagnostics_and_wipe(server):
+    c = server["c"]
+    export = c.get("/data/export")
+    assert export.status_code == 200 and export.json()["note"]
+    assert "people" in export.json() and "events" in export.json()
+    diag = c.get("/diagnostics")
+    assert diag.status_code == 200 and diag.json()["version"] and "log_tail" in diag.json()
+    wiped = c.post("/data/wipe", json={"confirm": "wipe"})
+    assert wiped.status_code == 200 and wiped.json()["ok"]
+    assert c.get("/people").json() == []
+    assert c.get("/timeline").json() == []

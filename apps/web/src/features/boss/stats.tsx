@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Download } from 'lucide-react'
+import { toast } from 'sonner'
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { api, ROLE_LABEL, ROLE_VARIANT, withToken } from '@/lib/api'
+import { api, errMsg, ROLE_LABEL, ROLE_VARIANT } from '@/lib/api'
 import { FilterSelect, roleOptions, usePeople, useSourceNames } from './filters'
 import { Page } from './page'
 import { type Rule } from './rules'
@@ -58,13 +59,13 @@ export function StatsPage() {
   const [person, setPerson] = useState('')
   const [role, setRole] = useState('')
   const [source, setSource] = useState('')
+  const [exporting, setExporting] = useState(false)
   const params = { days, person_id: person || undefined, role: role || undefined, source: source || undefined }
   const { data } = useQuery({
     queryKey: ['stats', params],
     queryFn: async () => (await api.get<Stats>('/stats', { params })).data,
     refetchInterval: 15000,
   })
-  const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]).toString()
   const { data: rulesData } = useQuery({
     queryKey: ['rules'],
     queryFn: async () => (await api.get<{ rules: Rule[] }>('/rules')).data,
@@ -100,10 +101,21 @@ export function StatsPage() {
         <FilterSelect value={person} onChange={setPerson} placeholder='全部人员' options={people.map((p) => ({ value: p.person_id, label: p.name }))} />
         <FilterSelect value={role} onChange={setRole} placeholder='全部分组' options={roleOptions} width='w-32' />
         <FilterSelect value={source} onChange={setSource} placeholder='全部画面源' options={sources.map((s) => ({ value: s, label: s }))} width='w-32' />
-        <Button variant='outline' className='ms-auto' asChild>
-          <a href={withToken(`/stats/export.csv?${qs}`)} download>
-            <Download /> 导出 CSV
-          </a>
+        <Button variant='outline' className='ms-auto' disabled={exporting} onClick={() => {
+          setExporting(true)
+          api.get('/stats/export.csv', { params, responseType: 'blob' })
+            .then((res) => {
+              const url = URL.createObjectURL(res.data)
+              const a = document.createElement('a')
+              a.href = url
+              a.download = `shiwu-stats-${days}d.csv`
+              a.click()
+              URL.revokeObjectURL(url)
+            })
+            .catch((e) => toast.error(errMsg(e)))
+            .finally(() => setExporting(false))
+        }}>
+          <Download /> {exporting ? '导出中…' : '导出 CSV'}
         </Button>
       </div>
       <div className='mb-4 grid gap-4 sm:grid-cols-3'>

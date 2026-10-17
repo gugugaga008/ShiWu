@@ -15,7 +15,8 @@ import cv2
 import numpy as np
 
 from ...enroll import LocalGallery
-from ...paths import ROOT, data_dir, videos_dir
+from ...paths import ROOT, data_dir, gallery_data_dir, videos_dir
+from ... import __version__
 from ...stream import (CallbackSink, EventBus, PipelineConfig, StreamPipeline, create_source,
                       available_sources)
 from ...stream.annotate import draw_faces
@@ -502,6 +503,9 @@ class BossRuntime:
         d = self.settings()
         d["smtp_password_set"] = bool(d.pop("smtp_password_enc", None))
         d["snapshots"] = self.snapshots.stats()
+        d["version"] = __version__
+        d["data_dir"] = str(data_dir())
+        d["gallery_dir"] = str(gallery_data_dir())
         return d
 
     def smtp_password(self) -> str:

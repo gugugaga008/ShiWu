@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type SettingsSection = 'sources' | 'defaults' | 'startup' | 'preview' | 'performance' | 'snapshots' | 'email'
+export type SettingsSection = 'sources' | 'defaults' | 'startup' | 'preview' | 'performance' | 'snapshots' | 'email' | 'privacy' | 'about'
 
 type SettingsDialogState = {
   open: boolean

@@ -163,7 +163,7 @@ function PersonRow({ p, onChanged }: { p: Person; onChanged: () => void }) {
           open={del}
           onOpenChange={setDel}
           title={`删除「${p.name}」？`}
-          desc='将同时删除其人脸数据与全部模板，不可恢复。'
+          desc='将删除人脸模板与头像，不可恢复。历史事件和触发快照会保留；需要一并清除请到「设置 → 数据与隐私」。'
           destructive
           confirmText='删除'
           handleConfirm={() => remove.mutate()}

@@ -56,7 +56,7 @@ function describe(r: Row) {
   }
   if (r.kind === 'recognized') return r.similarity != null ? `相似度 ${r.similarity.toFixed(3)}` : ''
   if (r.kind === 'source_error') return String((r.detail as { error?: string } | null)?.error ?? '画面源异常')
-  return r.source ? `来源：${r.source === 'tray' ? '托盘' : r.source === 'api' ? '管理界面' : r.source}` : ''
+  return r.source ? `来源：${r.source === 'tray' ? '托盘' : r.source === 'api' ? '管理界面' : r.source === 'desktop' ? '桌面端' : r.source}` : ''
 }
 
 export function EventLogCard({ limit = 20 }: { limit?: number }) {
@@ -111,7 +111,7 @@ export function EventLogCard({ limit = 20 }: { limit?: number }) {
                   <TableCell>
                     {r.role ? <Badge variant={ROLE_VARIANT[r.role] ?? 'outline'}>{ROLE_LABEL[r.role] ?? r.role}</Badge> : '—'}
                   </TableCell>
-                  <TableCell className='max-w-[520px] truncate text-sm'>{describe(r)}</TableCell>
+                  <TableCell className='max-w-[520px] whitespace-normal break-words text-sm' title={describe(r)}>{describe(r)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

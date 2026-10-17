@@ -66,6 +66,11 @@ class EventLog:
                     r[k] = json.loads(r[k])
         return rows
 
+    def clear(self) -> None:
+        with self._lock:
+            self._db.execute("DELETE FROM event_log")
+            self._db.commit()
+
     def purge_person(self, person_id: str) -> int:
         with self._lock:
             n = self._db.execute("DELETE FROM event_log WHERE person_id=?", (person_id,)).rowcount

@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useSettingsDialog } from '@/hooks/use-settings-dialog'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Camera, ChevronRight, Gauge, Image, Mail, MonitorPlay, Power, QrCode, Save, Settings2 } from 'lucide-react'
+import { Camera, ChevronRight, Copy, Database, Download, FolderOpen, Gauge, Image, Info, Mail, MonitorPlay, Power, QrCode, Save, Settings2, ShieldCheck, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -40,6 +42,9 @@ type Settings = {
   email_min_interval_s: number
   autostart: boolean
   auto_monitor: boolean
+  version?: string
+  data_dir?: string
+  gallery_dir?: string
   adaptive: boolean
   active_fps: number
   idle_fps: number
@@ -63,6 +68,7 @@ const MENU = [
   { label: '基础', items: [{ id: 'sources', label: '画面源', icon: MonitorPlay }, { id: 'defaults', label: '默认画面源', icon: Camera }, { id: 'startup', label: '启动', icon: Power }] },
   { label: '监控与隐私', items: [{ id: 'preview', label: '手机扫码预览', icon: QrCode }, { id: 'performance', label: '性能', icon: Gauge }, { id: 'snapshots', label: '触发快照', icon: Image }] },
   { label: '通知', items: [{ id: 'email', label: '邮件通知', icon: Mail }] },
+  { label: '数据', items: [{ id: 'privacy', label: '数据与隐私', icon: ShieldCheck }, { id: 'about', label: '关于与诊断', icon: Info }] },
 ] as const
 const KIND_LABEL: Record<string, string> = { camera: '摄像头', file: '视频文件', url: '网络流' }
 
@@ -118,6 +124,168 @@ function PreviewSettings() {
           </div>
         ))}
         <p className='text-xs text-muted-foreground'>会话时长在扫码时选择；到期后重新扫码。需要提前停止时，打开对应二维码并点击「断开手机预览」。</p>
+      </CardContent>
+    </Card>
+  )
+}
+
+async function copyText(text: string, what: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+    toast.success(`已复制${what}`)
+  } catch {
+    toast.error('复制失败，请手动选择路径复制')
+  }
+}
+
+function DataPrivacy({ s }: { s: Settings }) {
+  const [open, setOpen] = useState(false)
+  const [confirmed, setConfirmed] = useState(false)
+  const [busy, setBusy] = useState<'' | 'export' | 'wipe'>('')
+  const snap = s.snapshots
+  const exportData = async () => {
+    setBusy('export')
+    try {
+      const res = await api.get('/data/export', { responseType: 'blob' })
+      const url = URL.createObjectURL(res.data)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `shiwu-export-${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success('已导出配置与事件')
+    } catch (e) {
+      toast.error(errMsg(e))
+    } finally {
+      setBusy('')
+    }
+  }
+  const openFolder = async (which: 'data' | 'gallery') => {
+    try {
+      await api.post('/data/open-folder', null, { params: { which } })
+      toast.success('已打开目录')
+    } catch (e) {
+      toast.error(errMsg(e))
+    }
+  }
+  const wipe = async () => {
+    setBusy('wipe')
+    try {
+      const res = await api.post<{ people: number; snapshots: number }>('/data/wipe', { confirm: 'wipe' })
+      toast.success(`已清除 ${res.data.people} 人的人脸与全部历史，共删除 ${res.data.snapshots} 张快照`)
+      setTimeout(() => window.location.reload(), 900)
+    } catch (e) {
+      toast.error(errMsg(e))
+      setBusy('')
+    }
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className='flex items-center gap-2'><ShieldCheck className='size-5' aria-hidden />数据与隐私</CardTitle>
+        <CardDescription>人脸模板、事件与触发快照只保存在本机；只有你配置的邮件动作和网络流会访问外部服务。</CardDescription>
+      </CardHeader>
+      <CardContent className='grid gap-4'>
+        <div className='grid gap-2'>
+          <div className='flex items-center gap-2 text-sm font-medium'><Database className='size-4' aria-hidden />数据目录</div>
+          <code className='break-all rounded-md bg-muted px-2 py-1.5 text-xs'>{s.data_dir || '—'}</code>
+          <div className='flex flex-wrap gap-2'>
+            <Button size='sm' variant='outline' disabled={!s.data_dir} onClick={() => void openFolder('data')}><FolderOpen /> 打开数据目录</Button>
+            <Button size='sm' variant='ghost' disabled={!s.data_dir} onClick={() => void copyText(s.data_dir ?? '', '数据目录')}><Copy /> 复制路径</Button>
+          </div>
+          <div className='mt-2 flex items-center gap-2 text-sm font-medium'><Database className='size-4' aria-hidden />人脸库目录</div>
+          <code className='break-all rounded-md bg-muted px-2 py-1.5 text-xs'>{s.gallery_dir || '—'}</code>
+          <div className='flex flex-wrap gap-2'>
+            <Button size='sm' variant='outline' disabled={!s.gallery_dir} onClick={() => void openFolder('gallery')}><FolderOpen /> 打开人脸库目录</Button>
+            <Button size='sm' variant='ghost' disabled={!s.gallery_dir} onClick={() => void copyText(s.gallery_dir ?? '', '人脸库目录')}><Copy /> 复制路径</Button>
+          </div>
+        </div>
+
+        <div className='rounded-md border bg-muted/30 p-3 text-sm'>
+          触发快照：{snap ? `${snap.count} 张，${snap.encrypted ? '已加密' : '未加密'}` : '—'}。删除人员只会删除模板与头像；历史事件和快照会保留，需要一并清除时用下面的按钮。
+        </div>
+
+        <div className='grid gap-2 border-t pt-3'>
+          <div className='font-medium'>导出</div>
+          <p className='text-xs text-muted-foreground'>导出人员、规则、设置与事件记录。不含人脸模板、头像和快照文件；完整备份请直接复制上面的数据目录。</p>
+          <Button className='justify-self-start' variant='outline' disabled={busy === 'export'} onClick={() => void exportData()}>
+            <Download /> {busy === 'export' ? '导出中…' : '导出配置与事件（JSON）'}
+          </Button>
+        </div>
+
+        <div className='grid gap-2 border-t pt-3'>
+          <div className='font-medium text-destructive'>清除数据</div>
+          <p className='text-xs text-muted-foreground'>清除全部人脸模板、人员、事件、触发快照和采集会话；保留规则、设置和画面源配置。此操作不可恢复。</p>
+          <Button className='justify-self-start' variant='destructive' onClick={() => { setConfirmed(false); setOpen(true) }}>
+            <Trash2 /> 清除全部人脸与历史
+          </Button>
+        </div>
+      </CardContent>
+      <ConfirmDialog
+        open={open}
+        onOpenChange={(value) => { setOpen(value); if (!value) setConfirmed(false) }}
+        title='清除所有人脸与历史？'
+        desc={<p>将删除全部人员、人脸模板、事件、触发快照和采集会话，不可恢复。规则、设置和画面源配置会保留。</p>}
+        destructive
+        confirmText={busy === 'wipe' ? '清除中…' : '确认清除'}
+        cancelBtnText='取消'
+        disabled={!confirmed || busy === 'wipe'}
+        handleConfirm={() => void wipe()}
+      >
+        <label className='flex items-center gap-2 text-sm'>
+          <Checkbox checked={confirmed} onCheckedChange={(value) => setConfirmed(value === true)} />
+          我已知晓不可恢复
+        </label>
+      </ConfirmDialog>
+    </Card>
+  )
+}
+
+function About({ s }: { s: Settings }) {
+  const [busy, setBusy] = useState(false)
+  const copyDiagnostics = async () => {
+    setBusy(true)
+    try {
+      const res = await api.get('/diagnostics')
+      await copyText(JSON.stringify(res.data, null, 2), '诊断信息')
+    } catch (e) {
+      toast.error(errMsg(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className='flex items-center gap-2'><Info className='size-5' aria-hidden />关于与诊断</CardTitle>
+        <CardDescription>版本、运行位置和问题反馈所需的信息。</CardDescription>
+      </CardHeader>
+      <CardContent className='grid gap-4 text-sm'>
+        <div className='grid gap-1'>
+          <span className='text-muted-foreground'>版本</span>
+          <span className='font-medium'>识务 {s.version ?? '—'}</span>
+        </div>
+        <div className='grid gap-1'>
+          <span className='text-muted-foreground'>管理服务</span>
+          <span className='break-all font-mono text-xs'>{location.origin}</span>
+        </div>
+        <div className='flex flex-wrap gap-2'>
+          <Button variant='outline' disabled={busy} onClick={() => void copyDiagnostics()}>
+            <Copy /> {busy ? '准备中…' : '复制诊断信息'}
+          </Button>
+          <Button variant='outline' onClick={() => window.location.assign(`${import.meta.env.BASE_URL}?tour=1`)}>
+            <Info /> 重新查看新手引导
+          </Button>
+        </div>
+        <div className='grid gap-2 border-t pt-3'>
+          <span className='font-medium'>权限与快捷操作</span>
+          <ul className='grid list-disc gap-1 ps-5 text-xs text-muted-foreground'>
+            <li>摄像头：macOS「系统设置 → 隐私与安全性 → 摄像头」，Windows 在系统设置中允许应用使用摄像头。</li>
+            <li>最小化、切换程序、锁屏：macOS 可能需要「辅助功能」和「自动化」权限。</li>
+            <li>系统通知：在系统设置中允许识务通知。</li>
+            <li>解除遮挡：macOS ⌘ + ⌥ + B，Windows / Linux Ctrl + Alt + B；快捷键被占用时用托盘菜单「解除遮挡」。</li>
+          </ul>
+        </div>
       </CardContent>
     </Card>
   )
@@ -236,6 +404,8 @@ function SettingsForm() {
         <div className='min-w-0 flex-1 p-4 md:overflow-y-auto' aria-label='设置内容'>
         <div hidden={section !== 'sources'}><SourceAdd onDirtyChange={setSourceDirty} savedSources={s.saved_sources ?? []} /></div>
         {section === 'preview' && <PreviewSettings />}
+        {section === 'privacy' && <DataPrivacy s={s} />}
+        {section === 'about' && <About s={s} />}
         {section === 'defaults' && <Card>
           <CardHeader>
             <CardTitle className='flex items-center gap-2'><Camera className='size-5' aria-hidden />默认画面源</CardTitle>

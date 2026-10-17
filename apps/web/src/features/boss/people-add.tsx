@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Camera, ImagePlus, Upload, UserPlus, UserRound, Users, Video } from 'lucide-react'
@@ -13,8 +13,22 @@ import { api, ROLE_LABEL, type Person } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { CaptureWorkspace } from './capture'
 import { Page } from './page'
+import { SnapshotDialog } from './snapshot-dialog'
 
 type AddMode = 'photo' | 'file' | 'live'
+const REASON_LABEL: Record<string, string> = {
+  no_face: '没有检测到人脸',
+  face_too_small: '人脸太小，请靠近一些或换更清晰的照片',
+  too_close_to_edge: '人脸太靠边，请让人脸完整出现在画面里',
+  low_detection_conf: '人脸不够清晰，请换一张',
+  missing_landmarks: '五官不完整，请换正脸照片',
+  not_frontal: '请使用正脸照片',
+  head_tilted: '头部倾斜，请换一张正脸照片',
+  landmarks_outside_box: '人脸不完整，请换一张',
+  inconsistent_with_anchor: '与已登记照片差异较大，请确认是同一人',
+}
+const reasonText = (reason: string) => REASON_LABEL[reason.split('(')[0]] ?? '未通过人脸质量检查'
+
 const MODES = [
   { value: 'photo', label: '照片添加', icon: ImagePlus },
   { value: 'file', label: '视频文件添加', icon: Video },
@@ -76,18 +90,15 @@ function PhotoAdd() {
   const [verified, setVerified] = useState(false)
   const [selectedId, setSelectedId] = useState('')
   const [dragging, setDragging] = useState(false)
-  const [previews, setPreviews] = useState<string[]>([])
+  const [preview, setPreview] = useState<{ url: string; name: string } | null>(null)
+  const previews = useMemo(() => files.map((file) => URL.createObjectURL(file)), [files])
   const fileLocked = pending || creationUncertain || uploadUncertain
   const { data: people = [] } = useQuery({ queryKey: ['people'], queryFn: async () => (await api.get<Person[]>('/people')).data, enabled: creationUncertain })
   const selected = people.find((item) => item.person_id === selectedId)
   useEffect(() => {
     if (!files.length && fileRef.current) fileRef.current.value = ''
   }, [files])
-  useEffect(() => {
-    const urls = files.map((file) => URL.createObjectURL(file))
-    setPreviews(urls)
-    return () => urls.forEach((url) => URL.revokeObjectURL(url))
-  }, [files])
+  useEffect(() => () => previews.forEach((url) => URL.revokeObjectURL(url)), [previews])
   const upload = async () => {
     await submit()
     qc.invalidateQueries({ queryKey: ['people'] })
@@ -143,7 +154,13 @@ function PhotoAdd() {
             {previews.length ? (
               <div className='flex flex-wrap justify-center gap-2'>
                 {previews.slice(0, 6).map((url, index) => (
-                  <img key={url} src={url} alt={files[index]?.name || `已选照片 ${index + 1}`} className='size-20 rounded-md object-cover' />
+                  <button key={url} type='button' title='查看大图' className='rounded-md focus-visible:ring-2 focus-visible:ring-ring'
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setPreview({ url, name: files[index]?.name || `已选照片 ${index + 1}` })
+                    }}>
+                    <img src={url} alt={files[index]?.name || `已选照片 ${index + 1}`} className='size-28 rounded-md object-cover' />
+                  </button>
                 ))}
               </div>
             ) : <p>点击选择或拖放图片到此处</p>}
@@ -152,7 +169,7 @@ function PhotoAdd() {
         </div>
         {person && !supplementing && <p className='text-sm'>当前人员：{person.name}。照片未通过时人员已保留，可更换照片重试，不会重复创建。</p>}
         {report && <p role='status' className='text-sm'>本次通过 {report.accepted} 张，拒绝 {report.rejected?.length ?? 0} 张。{supplementing && report.accepted > 0 && '可继续选择照片补录。'}</p>}
-        {!!report?.rejected?.length && <p className='text-sm text-muted-foreground'>未通过：{report.rejected.slice(0, 5).map((item) => `${item.source ?? '照片'}（${item.reasons?.join('、') || '质量不合格'}）`).join('；')}{report.rejected.length > 5 ? '…' : ''}</p>}
+        {!!report?.rejected?.length && <p className='text-sm text-muted-foreground'>未通过：{report.rejected.slice(0, 5).map((item) => `${item.source ?? '照片'}（${item.reasons?.map(reasonText).join('、') || '质量不合格'}）`).join('；')}{report.rejected.length > 5 ? '…' : ''}</p>}
         {error && <p role='alert' className='text-sm text-destructive'>{error}</p>}
         {(creationUncertain || uploadUncertain) && <div className='grid gap-3 rounded-md border p-3'>
           <Button variant='outline' asChild><Link to='/people'>前往人员列表核对</Link></Button>
@@ -173,6 +190,14 @@ function PhotoAdd() {
           {person && !supplementing && <Button variant='outline' disabled={pending || uploadUncertain} onClick={() => { reset(); setVerified(false); setSelectedId('') }}>添加下一位</Button>}
         </div>
       </CardContent>
+      <SnapshotDialog
+        open={!!preview}
+        onOpenChange={(open) => { if (!open) setPreview(null) }}
+        title={preview?.name ?? '已选照片'}
+        description='上传前预览'
+        imageSrc={preview?.url ?? null}
+        imageAlt={preview?.name ?? '已选照片'}
+      />
     </Card>
   )
 }

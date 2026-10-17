@@ -132,6 +132,7 @@ describe('照片添加人员', () => {
     photos('bad.jpg')
     await screen.getByRole('button', { name: '上传并添加人员' }).click()
     await expect.element(screen.getByRole('alert')).toHaveTextContent('未录入任何照片')
+    await expect.element(screen.getByText(/没有检测到人脸/)).toBeVisible()
     expect(notifications.success).not.toHaveBeenCalled()
     expect(requests.delete).not.toHaveBeenCalled()
     photos('good.jpg')

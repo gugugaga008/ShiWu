@@ -83,6 +83,15 @@ class SnapshotStore:
         self._last_purge = now
         return n
 
+    def purge_all(self) -> int:
+        """删除全部快照目录（用户主动清除数据时使用）。"""
+        if not self.root.exists():
+            return 0
+        n = sum(1 for _ in self.root.glob("*/*.enc"))
+        shutil.rmtree(self.root, ignore_errors=True)
+        self.root.mkdir(parents=True, exist_ok=True)
+        return n
+
     def maybe_purge(self, keep_days: float):
         if time.time() - self._last_purge > 3600:
             self.purge(keep_days)

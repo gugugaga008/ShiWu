@@ -4,7 +4,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import platform
+import re
+import subprocess
+import sys
 import time
+from pathlib import Path
 from typing import Annotated, Any, Dict, List, Literal, Optional
 
 import cv2
@@ -13,7 +19,9 @@ from fastapi import APIRouter, File, HTTPException, Query, UploadFile, WebSocket
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, StringConstraints
 
+from ... import __version__
 from ...enroll import Candidate, EnrollmentService, QualityConfig, choose_templates
+from ...paths import data_dir, gallery_data_dir
 from ...rules import ACTION_TYPES
 from . import bridge
 from .capture import CaptureConfig
@@ -442,10 +450,9 @@ async def person_update(pid: str, req: PersonUpdate):
     return m
 
 
-@router.delete("/people/{pid}")
-async def person_delete(pid: str):
+async def _delete_person(pid: str) -> dict:
     """彻底删除：人脸模板（硬删）+ 成员（先匿名化再软删）+ 多模板库。
-    时间线事件与触发快照保留，不随人员删除改动。"""
+    时间线事件与触发快照保留，不随单人删除改动；需要一并清除时用数据面板的清除功能。"""
     if pid not in runtime.members(force=True):
         raise HTTPException(404, "人员不存在")
     await bridge.update_member(pid, {"name": "已删除人员", "role": None, "email": None})
@@ -458,6 +465,11 @@ async def person_delete(pid: str):
     return {"success": ok, "templates_removed": removed, "eventlog_removed": 0,
             "verify": {"face_remaining": face_left,
                        "gallery_remaining": runtime.gallery.count().get(pid, 0)}}
+
+
+@router.delete("/people/{pid}")
+async def person_delete(pid: str):
+    return await _delete_person(pid)
 
 
 @router.post("/people/{pid}/photos")
@@ -720,6 +732,96 @@ def eventlog(limit: int = Query(100, ge=1, le=1000), kind: Optional[str] = None,
 class ActionResult(BaseModel):
     action_id: str
     results: List[Dict[str, Any]]
+
+
+# ------------------------------------------------------------------ 数据与诊断
+class DataWipeRequest(BaseModel):
+    confirm: str = Field(..., max_length=32)
+
+
+@router.get("/data/export")
+def data_export():
+    """导出配置与事件（不含人脸模板、头像、快照文件），便于迁移/留档。"""
+    payload = {
+        "version": __version__,
+        "exported_at": time.time(),
+        "people": list(runtime.members(force=True).values()),
+        "rules": runtime.rule_engine.rules,
+        "settings": runtime.public_settings(),
+        "events": runtime.eventlog.list(5000),
+        "note": "不含人脸模板、头像与触发快照文件；完整备份请复制设置里的数据目录。",
+    }
+    filename = time.strftime("shiwu-export-%Y%m%d-%H%M.json")
+    return Response(json.dumps(payload, ensure_ascii=False, indent=2), media_type="application/json",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@router.post("/data/wipe")
+async def data_wipe(req: DataWipeRequest):
+    """清除全部人脸、成员、事件与快照；保留规则、设置和画面源配置。"""
+    if req.confirm != "wipe":
+        raise HTTPException(400, "确认参数不正确")
+    people = list(runtime.members(force=True))
+    runtime.stop_pipeline()
+    runtime.captures.clear()
+    runtime.events.clear()
+    runtime.camera_errors.clear()
+    for pid in people:
+        try:
+            await _delete_person(pid)
+        except HTTPException:
+            pass
+    runtime.eventlog.clear()
+    snapshots = runtime.snapshots.purge_all()
+    runtime.invalidate_people()
+    return {"ok": True, "people": len(people), "snapshots": snapshots}
+
+
+@router.post("/data/open-folder")
+def open_data_folder(which: Literal["data", "gallery"] = "data"):
+    path = data_dir() if which == "data" else gallery_data_dir()
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", str(path)])
+        elif os.name == "nt":
+            os.startfile(str(path))  # type: ignore[attr-defined]
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"无法打开目录：{e}")
+    return {"ok": True, "path": str(path)}
+
+
+@router.get("/diagnostics")
+def diagnostics():
+    """给用户反馈问题用的脱敏环境摘要；不包含密码、token 或原始配置。"""
+    from ...core import lifespan
+
+    log_path = gallery_data_dir() / "server.log"
+    tail = ""
+    if log_path.exists():
+        try:
+            tail = "\n".join(log_path.read_text("utf-8", errors="replace").splitlines()[-200:])
+            tail = re.sub(r"(token=)[^&\s]+", r"\1<redacted>", tail)
+        except OSError:
+            tail = ""
+    settings = runtime.public_settings()
+    return {
+        "version": __version__,
+        "platform": platform.platform(),
+        "python": platform.python_version(),
+        "data_dir": str(data_dir()),
+        "gallery_dir": str(gallery_data_dir()),
+        "models": {
+            "face_detector": bool(lifespan.face_detector),
+            "liveness_detector": bool(lifespan.liveness_detector),
+            "face_recognizer": bool(lifespan.face_recognizer),
+        },
+        "pipeline": runtime.pipeline_status(),
+        "monitor": runtime.monitor_status(),
+        "settings": settings,
+        "log_tail": tail,
+    }
 
 
 @router.post("/actions/result")

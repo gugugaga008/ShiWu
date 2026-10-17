@@ -96,6 +96,22 @@ describe('分层设置弹窗', () => {
     expect(requests.post).not.toHaveBeenCalled()
   })
 
+  it('数据与隐私面板导出配置时不把会话 token 拼进 URL', async () => {
+    requests.get.mockImplementation((path: string) => Promise.resolve({
+      data: path === '/settings'
+        ? { ...settings, version: '1.2.0', data_dir: '/tmp/shiwu-data', gallery_dir: '/tmp/shiwu-gallery', snapshots: { count: 0, bytes: 0, encrypted: true } }
+        : path === '/data/export'
+          ? new Blob(['{}'], { type: 'application/json' })
+          : { pipelines: [], max_sources: 4 },
+    }))
+    const screen = await setup()
+    await screen.getByRole('button', { name: '数据与隐私', exact: true }).click()
+    await expect.element(screen.getByText(/只保存在本机/)).toBeVisible()
+    await screen.getByRole('button', { name: /导出配置与事件/ }).click()
+    await expect.poll(() => requests.get.mock.calls.some(([path]) => path === '/data/export')).toBe(true)
+    expect(requests.get.mock.calls.every(([path]) => !String(path).includes('token='))).toBe(true)
+  })
+
   it('窄屏下弹窗无横向溢出，内容可滚动', async () => {
     await page.viewport(390, 844)
     try {
