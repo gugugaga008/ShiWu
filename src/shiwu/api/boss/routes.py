@@ -649,7 +649,7 @@ def snapshot_get(day: str, sid: str):
 @router.get("/timeline")
 def timeline(start: Optional[float] = None, end: Optional[float] = None, person_id: Optional[str] = None,
              role: Optional[str] = None, source: Optional[str] = None, kinds: str = "action,left",
-             limit: int = Query(200, ge=1, le=2000)):
+             before_id: Optional[int] = Query(None, ge=1), limit: int = Query(200, ge=1, le=2000)):
     """按时间回看触发事件（含快照）；可按人员/角色/源筛选。"""
     q, a = "SELECT * FROM event_log WHERE kind IN (%s)" % ",".join("?" * len(kinds.split(","))), kinds.split(",")
     for col, v, op in (("ts", start, ">="), ("ts", end, "<"), ("person_id", person_id, "="), ("role", role, "="),
@@ -657,7 +657,10 @@ def timeline(start: Optional[float] = None, end: Optional[float] = None, person_
         if v is not None and v != "":
             q += f" AND {col} {op} ?"
             a.append(v)
-    q += " ORDER BY ts DESC LIMIT ?"
+    if before_id:
+        q += " AND id < ?"
+        a.append(before_id)
+    q += " ORDER BY ts DESC, id DESC LIMIT ?"
     a.append(limit)
     el = runtime.eventlog
     with el._lock:

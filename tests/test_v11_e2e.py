@@ -116,6 +116,9 @@ def test_v11_full_flow(server, smtpd):
     assert files and all(not f.read_bytes().startswith(b"\xff\xd8") for f in files)
     assert any(e["kind"] == "left" for e in tl)
     assert c.get("/timeline", params={"source": "桌面"}).json()[0]["rule_id"] == "stranger"
+    first = c.get("/timeline", params={"limit": 1}).json()[0]
+    older = c.get("/timeline", params={"limit": 1, "before_id": first["id"]}).json()
+    assert older and older[0]["id"] < first["id"]
 
     # ---- 7) 白名单：王总改为白名单后，同一段视频不再触发
     c.post("/pipeline/stop")

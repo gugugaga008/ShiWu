@@ -1,13 +1,15 @@
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { DoorOpen, ImageOff, Zap } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { api, ROLE_LABEL, ROLE_VARIANT, withToken } from '@/lib/api'
 import { FilterSelect, roleOptions, usePeople, useSourceNames } from './filters'
 import { fmtTime } from './live'
 import { Page } from './page'
+import { type Rule } from './rules'
 import { SnapshotDialog } from './snapshot-dialog'
 
 type Item = {
@@ -47,12 +49,41 @@ export function Timeline() {
     const s = new Date(`${date}T00:00:00`).getTime() / 1000
     return { start: s, end: s + 86400 }
   }, [date])
-  const { data: items = [], isLoading } = useQuery({
+  const { data: rulesData } = useQuery({
+    queryKey: ['rules'],
+    queryFn: async () => (await api.get<{ rules: Rule[] }>('/rules')).data,
+  })
+  const timeline = useInfiniteQuery({
     queryKey: ['timeline', person, role, source, date, kinds, range],
-    queryFn: async () =>
-      (await api.get<Item[]>('/timeline', { params: { person_id: person || undefined, role: role || undefined, source: source || undefined, kinds, limit: 300, ...range } })).data,
+    queryFn: async ({ pageParam }) =>
+      (await api.get<Item[]>('/timeline', {
+        params: {
+          person_id: person || undefined, role: role || undefined, source: source || undefined,
+          kinds, limit: 100, before_id: pageParam, ...range,
+        },
+      })).data,
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (lastPage) => lastPage.length === 100 ? lastPage[lastPage.length - 1].id : undefined,
     refetchInterval: 5000,
   })
+  // 无限查询刷新第一页时可能和已加载的旧页重叠，按 id 去重。
+  const items = useMemo(() => {
+    const seen = new Set<number>()
+    const out: Item[] = []
+    for (const page of timeline.data?.pages ?? []) {
+      for (const item of page) {
+        if (!seen.has(item.id)) { seen.add(item.id); out.push(item) }
+      }
+    }
+    return out
+  }, [timeline.data])
+  const ruleLabel = (id: string | null) => {
+    if (!id) return ''
+    const rule = rulesData?.rules.find((item) => item.id === id)
+    if (!rule) return '已删除的规则'
+    if (rule.note?.trim()) return rule.note.trim()
+    return rule.whitelist ? '白名单规则' : rule.stranger ? '陌生人规则' : rule.person_ids.length ? '人员规则' : '分组规则'
+  }
   const groups = useMemo(() => {
     const g: [string, Item[]][] = []
     for (const it of items) {
@@ -72,9 +103,9 @@ export function Timeline() {
         <Input type='date' className='w-40' value={date} onChange={(e) => setDate(e.target.value)} />
         <FilterSelect value={kinds === 'action,left' ? '' : kinds} onChange={(v) => setKinds(v || 'action,left')} placeholder='触发 + 离开'
           options={[{ value: 'action', label: '只看触发' }, { value: 'left', label: '只看离开' }]} width='w-32' />
-        <span className='ms-auto text-sm text-muted-foreground'>{items.length} 条 · 触发 {nAct} 次</span>
+        <span className='ms-auto text-sm text-muted-foreground'>已显示 {items.length} 条 · 触发 {nAct} 次{timeline.hasNextPage ? ' · 还有更早记录' : ''}</span>
       </div>
-      {isLoading ? null : groups.length === 0 ? (
+      {timeline.isLoading ? null : groups.length === 0 ? (
         <Card>
           <CardContent className='py-16 text-center text-sm text-muted-foreground'>暂无记录</CardContent>
         </Card>
@@ -115,7 +146,7 @@ export function Timeline() {
                         <div className='flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground'>
                           {it.kind === 'action' ? (
                             <>
-                              <Zap className='size-3.5' /> 规则 {it.rule_id}
+                              {it.rule_id && <><Zap className='size-3.5' /> 规则 {ruleLabel(it.rule_id)}</>}
                               {(it.actions ?? []).map((a, i) => (
                                 <Badge key={i} variant='secondary' className='text-[11px]'>{ACTION_LABEL[a.type] ?? a.type}</Badge>
                               ))}
@@ -134,12 +165,19 @@ export function Timeline() {
           ))}
         </div>
       )}
+      {timeline.hasNextPage && (
+        <div className='mt-4 flex justify-center'>
+          <Button variant='outline' disabled={timeline.isFetchingNextPage} onClick={() => void timeline.fetchNextPage()}>
+            {timeline.isFetchingNextPage ? '加载中…' : '加载更早记录'}
+          </Button>
+        </div>
+      )}
       <SnapshotDialog
         open={!!open}
         onOpenChange={(o) => { if (!o) setOpen(null) }}
         title={open?.name ?? '快照'}
         timeLabel={open ? new Date(open.ts * 1000).toLocaleString('zh-CN', { hour12: false }) : undefined}
-        description={[open?.source, open?.rule_id ? `规则 ${open.rule_id}` : '', (open?.actions ?? []).map((a) => ACTION_LABEL[a.type] ?? a.type).join('、')].filter(Boolean).join(' · ')}
+        description={[open?.source, open?.rule_id ? `规则 ${ruleLabel(open.rule_id)}` : '', (open?.actions ?? []).map((a) => ACTION_LABEL[a.type] ?? a.type).join('、')].filter(Boolean).join(' · ')}
         imageSrc={open?.snapshot_url ? snap(open.snapshot_url) : null}
       />
     </Page>

@@ -9,12 +9,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { api, ROLE_LABEL, ROLE_VARIANT, withToken } from '@/lib/api'
 import { FilterSelect, roleOptions, usePeople, useSourceNames } from './filters'
 import { Page } from './page'
+import { type Rule } from './rules'
 
 type Stats = {
   days: number
   dates: string[]
   daily: ({ date: string; appearances: number; triggers: number } & Record<string, number | string>)[]
-  people: { person_id: string; name: string; role: string | null; role_label?: string; total: number; by_date: Record<string, number> }[]
+  people: { person_id: string; name: string | null; role: string | null; role_label?: string; total: number; by_date: Record<string, number> }[]
   heatmap: number[][]
   trigger_roles: Record<string, number>
   totals: { appearances: number; triggers: number; people: number }
@@ -23,7 +24,6 @@ type Stats = {
 const WD = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const COLORS = ['#ef4444', '#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#14b8a6']
 const short = (d: string) => d.slice(5)
-const TRIG_LABEL = (r: string) => ROLE_LABEL[r] ?? (r === 'stranger' ? '陌生人' : r === 'other' ? '其他' : r)
 
 function Heatmap({ data }: { data: number[][] }) {
   const max = Math.max(1, ...data.flat())
@@ -65,9 +65,32 @@ export function StatsPage() {
     refetchInterval: 15000,
   })
   const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]).toString()
-  const top = (data?.people ?? []).slice(0, 6)
-  const perPerson = (data?.dates ?? []).map((d) => ({ date: short(d), ...Object.fromEntries(top.map((p) => [p.name, p.by_date[d] ?? 0])) }))
+  const { data: rulesData } = useQuery({
+    queryKey: ['rules'],
+    queryFn: async () => (await api.get<{ rules: Rule[] }>('/rules')).data,
+  })
+  const allPeople = data?.people ?? []
+  const top = allPeople.slice(0, 6)
+  const rest = allPeople.slice(6)
+  const labelFor = (p: Stats['people'][number]) => {
+    const base = p.name?.trim() || '未知人员'
+    const same = allPeople.filter((item) => (item.name?.trim() || '未知人员') === base)
+    return same.length > 1 ? `${base}（${same.findIndex((item) => item.person_id === p.person_id) + 1}）` : base
+  }
+  const perPerson = (data?.dates ?? []).map((d) => {
+    const row: Record<string, string | number> = { date: short(d) }
+    for (const p of top) row[p.person_id] = p.by_date[d] ?? 0
+    if (rest.length) row.__other = rest.reduce((sum, p) => sum + (p.by_date[d] ?? 0), 0)
+    return row
+  })
   const trigKeys = Object.keys(data?.trigger_roles ?? {})
+  const ruleLabel = (id: string) => {
+    const rule = rulesData?.rules.find((item) => item.id === id)
+    if (!rule) return '已删除的规则'
+    if (rule.note?.trim()) return rule.note.trim()
+    return rule.whitelist ? '白名单规则' : rule.stranger ? '陌生人规则' : rule.person_ids.length ? '人员规则' : '分组规则'
+  }
+  const trigLabel = (r: string) => ROLE_LABEL[r] ?? (r === 'stranger' ? '陌生人' : r === 'other' ? '其他' : ruleLabel(r))
   const trend = (data?.daily ?? []).map((d) => ({ ...d, date: short(d.date) }))
   return (
     <Page title='统计' desc='按人 / 分组 / 日期统计出现次数、时段分布与触发趋势'>
@@ -84,7 +107,7 @@ export function StatsPage() {
         </Button>
       </div>
       <div className='mb-4 grid gap-4 sm:grid-cols-3'>
-        {[['出现次数', data?.totals.appearances, '同一条轨迹记 1 次'], ['触发次数', data?.totals.triggers, '规则触发动作'], ['出现人数', data?.totals.people, '已登记人员']].map(([t, v, d]) => (
+        {[['出现次数', data?.totals.appearances, '同一条轨迹记 1 次'], ['触发次数', data?.totals.triggers, '规则命中次数（不含测试）'], ['出现人数', data?.totals.people, '所选时间内出现过的人员（含历史）']].map(([t, v, d]) => (
           <Card key={t as string}>
             <CardHeader>
               <CardDescription>{t}</CardDescription>
@@ -98,6 +121,7 @@ export function StatsPage() {
         <Card>
           <CardHeader>
             <CardTitle>每天出现次数（按人）</CardTitle>
+            {rest.length > 0 && <CardDescription>图中显示前 6 人，其余 {rest.length} 人合并为「其他」；全部人员见下表。</CardDescription>}
           </CardHeader>
           <CardContent className='h-72'>
             <ResponsiveContainer width='100%' height='100%'>
@@ -108,8 +132,9 @@ export function StatsPage() {
                 <Tooltip />
                 <Legend />
                 {top.map((p, i) => (
-                  <Bar key={p.person_id} dataKey={p.name} stackId='a' fill={COLORS[i % COLORS.length]} />
+                  <Bar key={p.person_id} dataKey={p.person_id} name={labelFor(p)} stackId='a' fill={COLORS[i % COLORS.length]} />
                 ))}
+                {rest.length > 0 && <Bar dataKey='__other' name={`其他 ${rest.length} 人`} stackId='a' fill='#94a3b8' />}
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -128,7 +153,7 @@ export function StatsPage() {
                 <Legend />
                 <Line type='monotone' dataKey='triggers' name='全部触发' stroke='#111827' strokeWidth={2} dot={false} />
                 {trigKeys.map((k, i) => (
-                  <Line key={k} type='monotone' dataKey={`t_${k}`} name={TRIG_LABEL(k)} stroke={COLORS[i % COLORS.length]} dot={false} />
+                  <Line key={k} type='monotone' dataKey={`t_${k}`} name={trigLabel(k)} stroke={COLORS[i % COLORS.length]} dot={false} />
                 ))}
               </LineChart>
             </ResponsiveContainer>
@@ -146,33 +171,34 @@ export function StatsPage() {
         <Card>
           <CardHeader>
             <CardTitle>人员明细</CardTitle>
+            <CardDescription>包含所选时间内出现过的历史/已删除身份；合计为整个时间范围。</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className='overflow-x-auto'>
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>人员</TableHead>
                   <TableHead>分组</TableHead>
                   <TableHead className='text-end'>合计</TableHead>
-                  {(data?.dates ?? []).slice(-5).map((d) => (
-                    <TableHead key={d} className='text-end'>{short(d)}</TableHead>
+                  {(data?.dates ?? []).map((d) => (
+                    <TableHead key={d} className='text-end whitespace-nowrap'>{short(d)}</TableHead>
                   ))}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {(data?.people ?? []).map((p) => (
                   <TableRow key={p.person_id}>
-                    <TableCell className='font-medium'>{p.name}</TableCell>
+                    <TableCell className='font-medium whitespace-nowrap'>{labelFor(p)}</TableCell>
                     <TableCell>{p.role ? <Badge variant={ROLE_VARIANT[p.role] ?? 'outline'}>{ROLE_LABEL[p.role] ?? p.role}</Badge> : '—'}</TableCell>
                     <TableCell className='text-end font-semibold'>{p.total}</TableCell>
-                    {(data?.dates ?? []).slice(-5).map((d) => (
-                      <TableCell key={d} className='text-end text-muted-foreground'>{p.by_date[d] || ''}</TableCell>
+                    {(data?.dates ?? []).map((d) => (
+                      <TableCell key={d} className='text-end text-muted-foreground whitespace-nowrap'>{p.by_date[d] || ''}</TableCell>
                     ))}
                   </TableRow>
                 ))}
                 {!data?.people.length && (
                   <TableRow>
-                    <TableCell colSpan={8} className='py-6 text-center text-muted-foreground'>暂无数据</TableCell>
+                    <TableCell colSpan={3 + (data?.dates.length ?? 0)} className='py-6 text-center text-muted-foreground'>暂无数据</TableCell>
                   </TableRow>
                 )}
               </TableBody>
