@@ -125,7 +125,7 @@ function PreviewSettings() {
 
 function SettingsForm() {
   const { section, setSection } = useSettingsDialog()
-  const { data } = useQuery({ queryKey: ['settings'], queryFn: async () => (await api.get<Settings>('/settings')).data })
+  const { data, isError, refetch } = useQuery({ queryKey: ['settings'], queryFn: async () => (await api.get<Settings>('/settings')).data })
   const { data: pipe } = useQuery({
     queryKey: ['pipeline'],
     queryFn: async () => (await api.get<PipelineStatus>('/pipeline/status')).data ?? { pipelines: [], max_sources: 4 },
@@ -173,7 +173,12 @@ function SettingsForm() {
     },
     onError: (e) => toast.error(errMsg(e)),
   })
-  if (!s) return <p role='status' className='p-6'>加载中…</p>
+  if (!s) return isError
+    ? <div role='alert' className='grid justify-items-start gap-3 p-6'>
+        <p>无法读取设置，识别服务可能未启动或已断开。</p>
+        <Button variant='outline' onClick={() => void refetch()}>重试</Button>
+      </div>
+    : <p role='status' className='p-6'>加载中…</p>
   const set = (p: Partial<Settings>) => setS({ ...s, ...p })
   const catalog: NamedSource[] = (() => {
     const map = new Map<string, NamedSource>()
@@ -229,7 +234,7 @@ function SettingsForm() {
           ))}
         </nav>
         <div className='min-w-0 flex-1 p-4 md:overflow-y-auto' aria-label='设置内容'>
-        <div hidden={section !== 'sources'}><SourceAdd onDirtyChange={setSourceDirty} /></div>
+        <div hidden={section !== 'sources'}><SourceAdd onDirtyChange={setSourceDirty} savedSources={s.saved_sources ?? []} /></div>
         {section === 'preview' && <PreviewSettings />}
         {section === 'defaults' && <Card>
           <CardHeader>

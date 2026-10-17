@@ -1,9 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { Activity, Database, Pause, Play, ScanFace, Users } from 'lucide-react'
+import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { api, type BossEvent, ROLE_LABEL } from '@/lib/api'
+import { useSettingsDialog } from '@/hooks/use-settings-dialog'
+import { api, type BossEvent, errMsg, ROLE_LABEL } from '@/lib/api'
 import { EventLogCard } from './eventlog'
 import { Page } from './page'
 
@@ -35,9 +38,29 @@ export function Overview() {
       qc.invalidateQueries({ queryKey: ['pipeline'] })
     },
   })
+  const start = useMutation({
+    mutationFn: async () => (await api.post<{ start_errors?: { name?: string; error: string }[] }>('/pipeline/start-defaults')).data,
+    onSuccess: (result) => {
+      if (result.start_errors?.length) {
+        toast.error(`画面源启动失败：${result.start_errors.map((item) => `${item.name ?? ''} ${item.error}`).join('；')}`)
+      } else {
+        toast.success('监控已开始')
+      }
+      qc.invalidateQueries({ queryKey: ['monitor'] })
+      qc.invalidateQueries({ queryKey: ['status'] })
+      qc.invalidateQueries({ queryKey: ['pipeline'] })
+    },
+    onError: (e) => toast.error(errMsg(e)),
+  })
+  const { data: settings } = useQuery({
+    queryKey: ['settings'],
+    queryFn: async () => (await api.get<{ default_sources?: { name: string }[]; saved_sources?: { name: string }[] }>('/settings')).data,
+  })
   const p = data?.pipeline
   const paused = !!mon?.paused
   const running = !!p?.running
+  const hasDefault = (settings?.default_sources?.length ?? 0) > 0
+  const hasSaved = (settings?.saved_sources?.length ?? 0) > 0
   const statusLabel = paused ? '已暂停' : running ? '监控中' : '未开始'
   return (
     <Page title='总览' desc='服务状态、已注册人员与事件日志'>
@@ -51,7 +74,7 @@ export function Overview() {
             <div className='text-2xl font-bold'>
               {isError ? <span className='text-destructive'>离线</span> : data ? '运行中' : '…'}
             </div>
-            <p className='text-xs text-muted-foreground'>识务 · 本地 127.0.0.1:7400</p>
+            <p className='text-xs text-muted-foreground'>识务 · 本地 {location.host}</p>
           </CardContent>
         </Card>
         <Card>
@@ -62,12 +85,29 @@ export function Overview() {
           <CardContent>
             <div className='text-2xl font-bold'>{statusLabel}</div>
             <p className='text-xs text-muted-foreground'>
-              {paused ? '画面采集已停止' : running ? `已触发 ${mon?.fired ?? 0} 次` : '到设置添加画面源后开始监控'}
+              {paused ? '画面采集已停止' : running ? `已触发 ${mon?.fired ?? 0} 次` : hasDefault ? '已配置默认画面源，点「开始监控」' : hasSaved ? '画面源已保存，可到画面源页启动' : '还没有画面源'}
             </p>
-            {(running || paused) && (
-              <Button size='sm' className='mt-2' variant={paused ? 'default' : 'outline'} onClick={() => toggle.mutate()}>
-                {paused ? <Play /> : <Pause />} {paused ? '恢复监控' : '暂停监控'}
-              </Button>
+            {(running || paused) ? (
+              <div className='mt-2 flex flex-wrap gap-2'>
+                <Button size='sm' variant={paused ? 'default' : 'outline'} onClick={() => toggle.mutate()}>
+                  {paused ? <Play /> : <Pause />} {paused ? '恢复监控' : '暂停监控'}
+                </Button>
+                <Button size='sm' variant='ghost' asChild><Link to='/sources'>画面源状态</Link></Button>
+              </div>
+            ) : (
+              <div className='mt-2 flex flex-wrap gap-2'>
+                {hasDefault && (
+                  <Button size='sm' disabled={start.isPending} onClick={() => start.mutate()}>
+                    <Play /> {start.isPending ? '正在启动…' : '开始监控'}
+                  </Button>
+                )}
+                {hasSaved && !hasDefault && (
+                  <Button size='sm' asChild><Link to='/sources'>选择画面源</Link></Button>
+                )}
+                <Button size='sm' variant={hasSaved ? 'outline' : 'default'} onClick={() => useSettingsDialog.getState().openSection('sources')}>
+                  {hasSaved ? '管理画面源' : '添加画面源'}
+                </Button>
+              </div>
             )}
           </CardContent>
         </Card>

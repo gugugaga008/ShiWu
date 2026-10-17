@@ -4,6 +4,7 @@ import {
   UserRoundPlus,
   History,
   LayoutDashboard,
+  MonitorPlay,
   Scale,
   Settings,
   Users,
@@ -20,6 +21,11 @@ export const sidebarData: SidebarData = {
           url: '/',
           icon: LayoutDashboard,
           tour: 'nav-overview',
+        },
+        {
+          title: '画面源',
+          url: '/sources',
+          icon: MonitorPlay,
         },
         {
           title: '人员管理',

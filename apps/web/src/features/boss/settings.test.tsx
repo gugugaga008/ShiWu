@@ -65,6 +65,20 @@ describe('分层设置弹窗', () => {
     expect(requests.put).not.toHaveBeenCalled()
   })
 
+  it('停止后的已保存画面源可以重新启动，不需要重新选择文件', async () => {
+    requests.get.mockImplementation((path: string) => Promise.resolve({
+      data: path === '/settings'
+        ? { ...settings, saved_sources: [{ name: '走廊', kind: 'file', uri: '/tmp/走廊.mp4', loop: true, width: 1280, height: 720 }] }
+        : { pipelines: [{ name: '门口', running: true }], max_sources: 4 },
+    }))
+    const screen = await setup()
+    await expect.element(screen.getByText('已保存的画面源', { exact: true })).toBeVisible()
+    await screen.getByLabelText('设置内容').getByRole('button', { name: '启动', exact: true }).click()
+    await expect.poll(() => requests.post.mock.calls[0]).toEqual(['/pipeline/start', {
+      name: '走廊', kind: 'file', uri: '/tmp/走廊.mp4', loop: true, width: 1280, height: 720,
+    }])
+  })
+
   it('画面源表单一有草稿，「保存修改」立即可点', async () => {
     const screen = await setup()
     // 初始无任何改动：保存按钮禁用

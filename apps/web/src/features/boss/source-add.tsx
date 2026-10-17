@@ -17,10 +17,12 @@ import { MobilePreview } from './mobile-preview'
 import { SourcePicker, type SourceValue } from './source-picker'
 
 type PipelineStatus = { pipelines: { name: string; running: boolean }[]; max_sources: number }
+export type SavedSource = SourceValue & { name: string; loop?: boolean; width?: number; height?: number }
+const KIND_LABEL: Record<string, string> = { camera: '摄像头', file: '视频文件', url: '网络流' }
 
 const NAME_PRESETS = ['门口', '桌面', '走廊', '笔记本摄像头']
 
-export function SourceAdd({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) => void } = {}) {
+export function SourceAdd({ onDirtyChange, savedSources = [] }: { onDirtyChange?: (dirty: boolean) => void; savedSources?: SavedSource[] } = {}) {
   const qc = useQueryClient()
   const [name, setName] = useState('门口')
   const [src, setSrc] = useState<SourceValue>({ kind: 'file', uri: '' })
@@ -35,6 +37,7 @@ export function SourceAdd({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) 
   const cleanName = name.trim()
   const items = status?.pipelines ?? []
   const exists = items.some((p) => p.name === cleanName)
+  const savedStopped = savedSources.filter((saved) => !items.some((item) => item.name === saved.name && item.running))
   useEffect(() => {
     onDirtyChange?.(Boolean(src.uri.trim()) || name.trim() !== '门口' || src.kind !== 'file')
   }, [name, src.kind, src.uri, onDirtyChange])
@@ -46,6 +49,11 @@ export function SourceAdd({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) 
     onSuccess: () => {
       toast.success(`画面源「${cleanName}」已启动`)
       setAutoPreview(cleanName)
+      // 添加即启动，表单回到空白状态，避免留下假「未保存」标记。
+      setName('门口')
+      setSrc({ kind: 'file', uri: '' })
+      setLoop(true)
+      setRes('1280x720')
       qc.setQueryData(['pipeline'], (old: PipelineStatus | undefined) => {
         const cur = old ?? { pipelines: [], max_sources: 4 }
         const pipelines = cur.pipelines.some((p) => p.name === cleanName)
@@ -54,6 +62,21 @@ export function SourceAdd({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) 
         return { ...cur, pipelines }
       })
       qc.invalidateQueries({ queryKey: ['pipeline'] })
+      qc.invalidateQueries({ queryKey: ['settings'] })
+      qc.invalidateQueries({ queryKey: ['source-names'] })
+      qc.invalidateQueries({ queryKey: ['status'] })
+    },
+    onError: (e) => toast.error(errMsg(e)),
+  })
+  const startSaved = useMutation({
+    mutationFn: async (saved: SavedSource) => (await api.post('/pipeline/start', {
+      name: saved.name, kind: saved.kind, uri: saved.uri, loop: saved.loop ?? true,
+      width: saved.width, height: saved.height,
+    })).data,
+    onSuccess: (_result, saved) => {
+      toast.success(`画面源「${saved.name}」已启动`)
+      qc.invalidateQueries({ queryKey: ['pipeline'] })
+      qc.invalidateQueries({ queryKey: ['settings'] })
       qc.invalidateQueries({ queryKey: ['source-names'] })
       qc.invalidateQueries({ queryKey: ['status'] })
     },
@@ -124,7 +147,7 @@ export function SourceAdd({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) 
           <div className='flex flex-wrap items-center gap-3'>
             <Button disabled={!cleanName || !src.uri.trim() || start.isPending} onClick={() => start.mutate()}>
               {exists ? <CirclePlay aria-hidden /> : <Plus aria-hidden />}
-              {start.isPending ? '正在启动…' : exists ? `替换「${cleanName}」并启动` : '添加并启动'}
+              {start.isPending ? '正在启动…' : exists && src.uri.trim() ? `替换「${cleanName}」并启动` : '添加并启动'}
             </Button>
             <span className='flex items-center gap-1.5 text-xs text-muted-foreground'><FileVideo className='size-3.5' aria-hidden />支持摄像头、网络流与视频文件</span>
           </div>
@@ -134,7 +157,7 @@ export function SourceAdd({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) 
         <Card>
           <CardHeader>
             <CardTitle>已启动的画面源</CardTitle>
-            <CardDescription>停止只是暂停识别（可重启恢复），不会删除；删除需点垃圾桶确认。电脑不显示实时画面。</CardDescription>
+            <CardDescription>停止只是暂停识别，不会删除；停止后可在下方「已保存的画面源」重新启动。删除需点垃圾桶确认。</CardDescription>
           </CardHeader>
           <CardContent className='grid gap-2'>
             {items.map((p) => (
@@ -154,6 +177,32 @@ export function SourceAdd({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) 
                     <Trash2 />
                   </Button>
                   <MobilePreview source={p.name} disabled={!p.running} autoOpen={autoPreview === p.name} />
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+      {savedStopped.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>已保存的画面源</CardTitle>
+            <CardDescription>这些画面源已停止但配置仍保存在本机，可直接重新启动，不用重新选择文件。</CardDescription>
+          </CardHeader>
+          <CardContent className='grid gap-2'>
+            {savedStopped.map((saved) => (
+              <div key={saved.name} className='flex flex-wrap items-center justify-between gap-2 rounded-md border p-3'>
+                <div className='min-w-0'>
+                  <div className='font-medium'>{saved.name}</div>
+                  <p className='truncate text-xs text-muted-foreground'>{KIND_LABEL[saved.kind] ?? saved.kind}{saved.uri ? ` · ${saved.uri.split(/[\\/]/).pop()}` : ''}</p>
+                </div>
+                <div className='flex items-center gap-1'>
+                  <Button size='sm' variant='outline' disabled={startSaved.isPending} onClick={() => startSaved.mutate(saved)}>
+                    <CirclePlay aria-hidden /> 启动
+                  </Button>
+                  <Button size='icon' variant='ghost' className='size-7 text-destructive hover:text-destructive' title='删除画面源' onClick={() => setPendingDelete(saved.name)}>
+                    <Trash2 />
+                  </Button>
                 </div>
               </div>
             ))}

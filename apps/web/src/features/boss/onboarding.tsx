@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
+import { Link } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { api } from '@/lib/api'
 import { setCookie, getCookie } from '@/lib/cookies'
 import { cn } from '@/lib/utils'
 
@@ -36,7 +39,7 @@ const STEPS: Step[] = [
   {
     target: 'nav-rules',
     title: '第三步 · 设置触发规则',
-    desc: '到「规则设置」决定认出谁时做什么：通知、声音、遮挡屏幕、锁屏都可以组合。',
+    desc: '到「规则设置」决定认出谁时做什么。默认只有系统通知；需要遮挡请勾选「全屏遮挡（假装工作）」。',
     side: 'right',
   },
   {
@@ -47,7 +50,7 @@ const STEPS: Step[] = [
   },
   {
     title: '准备就绪',
-    desc: '监控开始后保持窗口开着即可。随时可在左侧菜单再次进入对应页面调整。',
+    desc: '监控开始后可以最小化窗口，识务会在托盘继续运行。随时可在左侧菜单再次进入对应页面调整。',
   },
 ]
 
@@ -90,15 +93,21 @@ export function Onboarding() {
   const [rect, setRect] = useState<Rect | null>(null)
 
   useEffect(() => {
-    if (getCookie(TOUR_COOKIE)) return
-    // 等首屏布局稳定后再挂遮罩
-    const t = window.setTimeout(() => setStep(0), 600)
+    const forced = new URLSearchParams(window.location.search).get('tour') === '1'
+    if (!forced && getCookie(TOUR_COOKIE)) return
+    // 等首屏布局稳定后再挂遮罩；从设置重看引导时立即打开
+    const t = window.setTimeout(() => setStep(0), forced ? 50 : 600)
     return () => window.clearTimeout(t)
   }, [])
 
   const done = useCallback(() => {
     setCookie(TOUR_COOKIE, '1', 60 * 60 * 24 * 3650)
     setStep(null)
+    const url = new URL(window.location.href)
+    if (url.searchParams.has('tour')) {
+      url.searchParams.delete('tour')
+      window.history.replaceState({}, '', url)
+    }
   }, [])
 
   const s = step === null ? null : STEPS[step]
@@ -111,12 +120,14 @@ export function Onboarding() {
   // 高亮目标可能随布局异步出现（如子菜单展开），持续用 rAF 轻量重测，直到拿到矩形或换步
   useLayoutEffect(() => {
     let raf = 0
-    let last: Rect | null | undefined
+    // 初始为 undefined：首个 tick（无论有没有目标）一定写入；否则最后一步会残留上一步的高亮。
+    let lastRect: Rect | null | undefined
     const tick = () => {
       const next = s?.target ? targetRect(s.target) : null
-      const changed = (next === null) !== (last === null) ||
-        (next && last && (next.x !== last.x || next.y !== last.y || next.w !== last.w || next.h !== last.h))
-      if (changed) { setRect(next); last = next }
+      const changed = lastRect === undefined ||
+        (next === null) !== (lastRect === null) ||
+        (next && lastRect && (next.x !== lastRect.x || next.y !== lastRect.y || next.w !== lastRect.w || next.h !== lastRect.h))
+      if (changed) { setRect(next); lastRect = next }
       raf = requestAnimationFrame(tick)
     }
     tick()
@@ -135,6 +146,30 @@ export function Onboarding() {
     return () => window.removeEventListener('keydown', onKey)
   }, [step, done])
 
+  // 引导允许直接点击被高亮菜单；点中目标即视为完成这一步，避免遮罩拦住操作。
+  useEffect(() => {
+    if (!s?.target) return
+    const onClick = (event: MouseEvent) => {
+      const target = (event.target as HTMLElement | null)?.closest(`[data-tour='${s.target}']`)
+      if (target) done()
+    }
+    document.addEventListener('click', onClick, true)
+    return () => document.removeEventListener('click', onClick, true)
+  }, [s, done])
+
+  const { data: pipelines = [] } = useQuery({
+    queryKey: ['onboarding-pipeline'],
+    queryFn: async () => (await api.get<{ pipelines: { running: boolean }[] }>('/pipeline/status')).data.pipelines ?? [],
+    enabled: step !== null,
+  })
+  const { data: people = [] } = useQuery({
+    queryKey: ['onboarding-people'],
+    queryFn: async () => (await api.get<{ person_id: string }[]>('/people')).data,
+    enabled: step !== null,
+  })
+  const running = pipelines.some((item) => item.running)
+  const hasPeople = people.length > 0
+
   if (s === null || step === null) return null
   const last = step === STEPS.length - 1
   const pos = cardPos(rect, s.side)
@@ -142,9 +177,9 @@ export function Onboarding() {
   const vh = window.innerHeight
 
   return createPortal(
-    <div className='fixed inset-0 z-[100]' role='dialog' aria-modal='true' aria-label='新手引导'>
-      {/* 遮罩：中间挖一个高亮孔 */}
-      <svg className='absolute inset-0 size-full' width={vw} height={vh} aria-hidden>
+    <div className='pointer-events-none fixed inset-0 z-[100]' role='dialog' aria-modal='true' aria-label='新手引导'>
+      {/* 遮罩：中间挖一个高亮孔；不拦截点击，允许直接操作被高亮的菜单 */}
+      <svg className='pointer-events-none absolute inset-0 size-full' width={vw} height={vh} aria-hidden>
         <defs>
           <mask id='tour-hole'>
             <rect width={vw} height={vh} fill='white' />
@@ -157,19 +192,17 @@ export function Onboarding() {
             fill='none' stroke='rgb(251 191 36 / 0.9)' strokeWidth='2' />
         )}
       </svg>
-      {/* 点击遮罩不关闭（避免误触跳过），靠按钮/键盘操作 */}
-      <div className='absolute inset-0' onClick={() => {}} />
       <button
         type='button'
         aria-label='跳过引导'
         onClick={done}
-        className='absolute end-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20'
+        className='pointer-events-auto absolute end-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20'
       >
         <X className='size-4' />
       </button>
       <div
         className={cn(
-          'absolute rounded-xl border bg-popover p-4 text-popover-foreground shadow-2xl transition-all duration-200',
+          'pointer-events-auto absolute rounded-xl border bg-popover p-4 text-popover-foreground shadow-2xl transition-all duration-200',
         )}
         style={pos}
       >
@@ -178,6 +211,18 @@ export function Onboarding() {
           <span className='shrink-0 text-xs text-muted-foreground'>{step + 1} / {STEPS.length}</span>
         </div>
         <p className='mb-4 text-sm leading-relaxed text-muted-foreground'>{s.desc}</p>
+        {last && (
+          <div className='mb-4 grid gap-2 rounded-md border bg-muted/40 p-3 text-sm'>
+            <div className='flex items-center justify-between gap-3'>
+              <span>{running ? '✓ 画面源已启动' : '○ 画面源未启动'}</span>
+              {!running && <Link to='/sources' onClick={done} className='text-primary underline underline-offset-2'>去启动</Link>}
+            </div>
+            <div className='flex items-center justify-between gap-3'>
+              <span>{hasPeople ? '✓ 已登记人员' : '○ 还没有登记人员'}</span>
+              {!hasPeople && <Link to='/people/add' onClick={done} className='text-primary underline underline-offset-2'>去登记</Link>}
+            </div>
+          </div>
+        )}
         <div className='flex items-center justify-between'>
           <Button size='sm' variant='ghost' onClick={done} className='text-muted-foreground'>跳过</Button>
           <div className='flex gap-2'>

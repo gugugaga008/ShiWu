@@ -32,6 +32,7 @@ let backend = null
 let live = null
 let executor = null
 let paused = false
+let pipelineRunning = false
 let quitting = false
 let logStream = null
 let cameraWin = null
@@ -292,13 +293,19 @@ async function startMonitoring(src, { allowCamera = true } = {}) {
     for (const e of st.start_errors || []) toast('画面源启动失败', `${e.name || ''} ${e.error}`)
     if (st.cameras_skipped) log('[monitor] 进入软件不自动打开摄像头')
     log(`[monitor] 已启动默认源 ${(st.pipelines || []).map((p) => p.name).join('、') || '（无）'}`)
+    pipelineRunning = (st.pipelines || []).length > 0
+    updateTray()
     lastPush = allowCamera && (st.pipelines || []).some((p) => isPush(p.source))
     if (lastPush && !paused) openCameraWindow()
     else closeCameraWindow()
     return
   }
   src = src || settings.default_source
-  if (!src) return log('[monitor] 未设置默认画面源，等待在设置中选择')
+  if (!src) {
+    log('[monitor] 未设置默认画面源，等待在设置中选择')
+    toast('还没有默认画面源', '请到设置 → 画面源添加并启动，或在「默认画面源」勾选后保存。')
+    return
+  }
   if (!allowCamera && (src.kind === 'camera' || isPush(src))) {
     return log('[monitor] 进入软件不自动打开摄像头，请手动开始监控')
   }
@@ -315,6 +322,8 @@ async function startMonitoring(src, { allowCamera = true } = {}) {
     return
   }
   log(`[monitor] 已启动 ${src.kind}:${src.uri}`)
+  pipelineRunning = true
+  updateTray()
   lastPush = isPush(src)
   if (lastPush && !paused) openCameraWindow()
   else closeCameraWindow()
@@ -352,6 +361,7 @@ async function setPaused(p) {
   try {
     const st = await backend.json(`/boss/monitor/${p ? 'pause' : 'resume'}?source=tray`, { method: 'POST' })
     paused = !!st.paused
+    pipelineRunning = !!st.pipeline_running
   } catch (e) {
     log('[monitor] 切换失败', e.message)
   }
@@ -360,9 +370,12 @@ async function setPaused(p) {
 
 function updateTray() {
   if (!tray) return
-  tray.setToolTip(`识务 · ${paused ? '监控已暂停' : '监控中'}`)
+  const state = paused ? '监控已暂停' : pipelineRunning ? '监控中' : '尚未开始监控'
+  tray.setToolTip(`识务 · ${state}`)
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: paused ? '▶ 恢复监控' : '⏸ 暂停监控', accelerator: PAUSE_KEY, click: () => setPaused(!paused) },
+    paused || pipelineRunning
+      ? { label: paused ? '▶ 恢复监控' : '⏸ 暂停监控', accelerator: PAUSE_KEY, click: () => setPaused(!paused) }
+      : { label: '尚未开始监控', enabled: false },
     { label: '打开管理界面', click: openMain },
     { label: '用默认源开始监控', click: () => startMonitoring() },
     { label: '解除遮挡', accelerator: UNLOCK, enabled: !!coverWin, click: hideCover },
@@ -444,16 +457,30 @@ async function boot() {
   if (app.isPackaged) applyAutostart(!!settings.autostart)
   live = new Live(backend, { onAction, onLeave, onEvent, onSettings, onPipeline: (src, sources) => {
     // 管理界面里加了「桌面端摄像头」源时由这里开采集窗口（多路时任一路是推流即可）
-    lastPush = (sources || [src]).some(isPush)
+    const list = sources || [src]
+    pipelineRunning = list.filter(Boolean).length > 0
+    lastPush = list.some(isPush)
+    updateTray()
     if (lastPush && !paused) openCameraWindow()
     else closeCameraWindow()
   }, onMonitor: (m) => {
     paused = !!m.paused
+    if (typeof m.pipeline_running === 'boolean') pipelineRunning = m.pipeline_running
     updateTray()
     if (paused) closeCameraWindow()
     else if (lastPush) openCameraWindow()
   } }, log)
   live.connect()
+  // WS 偶尔会漏掉进程内线程自行退出的情况，定时兜底同步托盘状态。
+  setInterval(async () => {
+    if (quitting) return
+    try {
+      const st = await backend.json('/boss/monitor')
+      paused = !!st.paused
+      if (typeof st.pipeline_running === 'boolean') pipelineRunning = st.pipeline_running
+      updateTray()
+    } catch {}
+  }, 15000)
 
   if (!globalShortcut.register(UNLOCK, hideCover)) log(`[shortcut] ${UNLOCK} 注册失败（可能被占用）`)
   globalShortcut.register(PAUSE_KEY, () => setPaused(!paused))
